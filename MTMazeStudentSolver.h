@@ -5,12 +5,16 @@
 #include <vector>
 #include <thread>
 #include <chrono>
+#include <pthread.h>
+#include <sched.h>
+#include <unistd.h>
+
 
 #include "Maze.h"
 #include "MazeSolver.h"
 #include "Direction.h"
 
-const int threadNum = 20;
+const int threadNum = 168;
 
 // Feel free to change your class any way you see fit
 // It needs to inherit at some point from the MazeSolver
@@ -191,6 +195,14 @@ public:
 
 	void walkThread_DFS_TB(int threadID, std::vector<Direction>*& pTB, Position& posOverlap, std::atomic<bool>& foundSolution)
 	{
+
+                //cpu_set_t cpuset;
+                //CPU_ZERO(&cpuset);
+                //CPU_SET(threadID, &cpuset);
+
+	        // Bind this std::thread to a specific core
+	        //pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+
 		std::vector<Junction> pJunctionStack;
 		pJunctionStack.reserve(VECTOR_RESERVE_SIZE);
 
@@ -268,6 +280,13 @@ public:
 
 	void walkThread_DFS_BT(int threadID, std::vector<Junction>& pBTStack, Position& posOverlap, std::atomic<bool>& foundSolution, std::atomic<bool>& foundOverlap)
 	{
+		//cpu_set_t cpuset;
+		//CPU_ZERO(&cpuset);
+		//CPU_SET(threadID, &cpuset);
+
+		// Bind this std::thread to a specific core
+                //pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+
 		std::vector<Junction> pJunctionStack;
 		pJunctionStack.reserve(VECTOR_RESERVE_SIZE);
 
@@ -330,7 +349,7 @@ public:
 			return;
 		}
 
-		printf("pos ( %d , %d)\n", pos.row, pos.col);
+		//printf("pos ( %d , %d)\n", pos.row, pos.col);
 
 		// 2. Unwind stack to find the connection point
 		while (!(pJunctionStack.empty()) && /*!foundOverlap*/!foundOverlap.load(std::memory_order_relaxed))
@@ -854,9 +873,15 @@ public:
 	}
 
 	void PruneDeadCellsMiddleChunk(int N, int thdID, bool& exit, CircularData& outQueTop, CircularData& outQueBottom, CircularData& inQue)
-	{
+	{  
+	        //cpu_set_t cpuset;
+  	        //CPU_ZERO(&cpuset);
+  	        //CPU_SET(thdID, &cpuset);
+
+		// Bind this std::thread to a specific core  							
+	        //pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 		int chunk = pMaze->height / N;
-		int remainder = pMaze->height % N;
+ 		int remainder = pMaze->height % N;
 
 		int rowStart = thdID * chunk + std::min(thdID, remainder);
 		int rowEnd = (thdID + 1) * chunk + std::min(thdID + 1, remainder);
@@ -1064,14 +1089,14 @@ public:
 	std::vector<Direction>* Solve_1()
 	{
 		std::vector<Direction>* pTB = new std::vector<Direction>();
-		this->StartParallelPruning_Method1(threadNum, pTB);
+		this->StartParallelPruning_Method1(168, pTB);
 		return pTB;
 	}
 
 	std::vector<Direction>* Solve_2()
 	{
 		std::vector<Direction>* pTB = new std::vector<Direction>();
-		this->StartParallelDFSWalking_Method2(threadNum/2, threadNum/2, pTB);
+		this->StartParallelDFSWalking_Method2(40, 40, pTB);
 		return pTB;
 	}
 };

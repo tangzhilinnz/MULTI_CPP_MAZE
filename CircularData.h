@@ -34,7 +34,7 @@ private:
 
 public:
 	// Needs to be a power of 2
-	static const int CIRCULAR_DATA_SIZE = 1 << 11;
+	static const int CIRCULAR_DATA_SIZE = 1 << 13;
 
 	// verify that buffSize is a power of 2
 	static_assert((CIRCULAR_DATA_SIZE &(CIRCULAR_DATA_SIZE - 1)) == 0, "not Power of 2");

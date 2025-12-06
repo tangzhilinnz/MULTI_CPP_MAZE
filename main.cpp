@@ -11,7 +11,7 @@
 
 // change to "1" for the final submission
 // do not run in debugger... copy exe to data directory
-#define FINAL_SUBMIT 0
+#define FINAL_SUBMIT 1
 
 // --- Linux Compatible Timer (High Precision) ---
 // Uses high_resolution_clock to ensure the most accurate 
@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
 	printf("--MAIN--\n");
 
 #if !FINAL_SUBMIT
-	char inFileName[INPUT_NAME_SIZE] = "Maze5Kx5K.data";
+	char inFileName[INPUT_NAME_SIZE] = "Maze20Kx20K_B.data";
 	(void)argv;
 #else
 	char inFileName[INPUT_NAME_SIZE];
@@ -84,8 +84,8 @@ int main(int argc, char *argv[])
 		// Solve it
 		ST_BFS_Timer.Tic(); 
 
-			STMazeSolverBFS stSolverBFS(pMaze);
-			std::vector<Direction> *pSolutionBFS = stSolverBFS.Solve();
+		STMazeSolverBFS stSolverBFS(pMaze);
+		std::vector<Direction> *pSolutionBFS = stSolverBFS.Solve();
 		
 		ST_BFS_Timer.Toc();
 
@@ -94,7 +94,7 @@ int main(int argc, char *argv[])
 
 		// release memory
 		delete pSolutionBFS;
-		delete pMaze;
+                delete pMaze;
 
 	// -- STMazeSolverDFS -----------------------------------------------------------
 	printf("\n Maze: STMazeSolverDFS\n");
@@ -106,17 +106,16 @@ int main(int argc, char *argv[])
 		// Solve it
 		ST_DFS_Timer.Tic(); 
 
-			STMazeSolverDFS stSolverDFS(pMaze);
-			std::vector<Direction> *pSolutionDFS = stSolverDFS.Solve();
+		STMazeSolverDFS stSolverDFS(pMaze);
+		std::vector<Direction> *pSolutionDFS = stSolverDFS.Solve();
 		
 		ST_DFS_Timer.Toc();
 
 		// Verify solution - do not delete, it is not timed
-		pMaze->checkSolution( *pSolutionDFS );
-
+                pMaze->checkSolution( *pSolutionDFS );
 		// release memory
-		delete pSolutionDFS;
-		delete pMaze;
+                delete pSolutionDFS;
+                delete pMaze;
 
 	// -- Multi-Threaded Student Solver ----------------------------------------------
 	printf("\n Maze: MTStudentSolver_1\n");

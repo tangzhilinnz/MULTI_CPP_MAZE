@@ -67,7 +67,7 @@ endif()
 # Compiler specific optimization flags for GCC/Clang (Linux Standard)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(MazeSolver PRIVATE
-        $<$<CONFIG:Release>:-O3>             # Maximum optimization level
+        $<$<CONFIG:Release>:-O2>             # Maximum optimization level
         $<$<CONFIG:Release>:-march=native>   # KEY for Atomics: Use instructions specific to YOUR CPU
         $<$<CONFIG:Release>:-mtune=native>   # Tune scheduling for your CPU
         $<$<CONFIG:Release>:-funroll-loops>  # Aggressive loop unrolling
