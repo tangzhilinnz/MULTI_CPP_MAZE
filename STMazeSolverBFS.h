@@ -1,7 +1,3 @@
-//------------------------------------------------------
-// Copyright 2025, Ed Keenan, all rights reserved.
-//------------------------------------------------------
-
 #ifndef ST_Maze_Solver_BFS_H
 #define ST_Maze_Solver_BFS_H
 

@@ -1,7 +1,3 @@
-//------------------------------------------------------
-// Copyright 2025, Ed Keenan, all rights reserved.
-//------------------------------------------------------
-
 #ifndef MAZE_H
 #define MAZE_H
 
@@ -11,8 +7,10 @@
 
 #include "Position.h"
 #include "Direction.h"
-#include "Choice.h"
 #include "CircularData.h"
+
+struct ListDirection;
+struct Branches;
 
 #define DEBUG_PRINT 0
 
@@ -35,6 +33,7 @@ public:
 	void Load( const char * const fileName );
 
 	ListDirection getMoves(Position pos);
+	Branches getBranches(Position pos, int threadId);
 	bool canMove( Position pos, Direction dir );
 	bool checkSolution( std::vector<Direction> &soln );
 
@@ -46,19 +45,20 @@ public:
 	unsigned int getCell(Position pos);
 	void setCell(Position pos, unsigned int val);
 
-
-	void PruneDeadCellsHeadChunk(int N, bool& exit, CircularData& outQue, CircularData& inQue);
-	void PruneDeadCellsTailChunk(int N, bool& exit, CircularData& outQue, CircularData& inQue);
-	void PruneDeadCellsMiddleChunk(int N, int thdID, bool& exit,
-		CircularData& outQueTop, CircularData& outQueBottom, CircularData& inQue);
-
-	void PruneDeadCellsChunk(int N, int thdID, bool& exit);
-
 	bool isOverlapCell(Position pos);
 	void setOverlap(Position pos);
 
-	inline bool isDeadCell(Position pos);
-	inline void setDead(Position pos);
+	bool isDeadCell(Position pos);
+	void setDead(Position pos);
+
+	bool isBranchOccupied(Position pos);
+	void setBranchOccupied(Position pos);
+
+	bool isBranchDead(Position pos);
+	void setBranchDead(Position pos);
+
+	bool checkBranchOccupied(Position pos, Direction dir);
+	bool checkBranchDead(Position pos, Direction dir);
 
 // data:
 	std::atomic_uint *poMazeData;

@@ -1,7 +1,3 @@
-//------------------------------------------------------
-// Copyright 2025, Ed Keenan, all rights reserved.
-//------------------------------------------------------
-
 #ifndef MT_Maze_Student_Solver_H
 #define MT_Maze_Student_Solver_H
 
@@ -12,15 +8,13 @@
 #include "MazeSolver.h"
 #include "Direction.h"
 
-
 // Feel free to change your class any way you see fit
 // It needs to inherit at some point from the MazeSolver
-class MTMazeStudentSolver : public SkippingMazeSolver //public MazeSolver 
+class MTMazeStudentSolver : public MazeSolver 
 {
 public: 
 	MTMazeStudentSolver(Maze *maze) 
-	//: MazeSolver( maze )
-		: SkippingMazeSolver(maze)
+	: MazeSolver( maze )
 	{
 		assert(pMaze);
 	}
@@ -29,64 +23,6 @@ public:
 	MTMazeStudentSolver(const MTMazeStudentSolver &) = delete;
 	MTMazeStudentSolver &operator=(const MTMazeStudentSolver &) = delete;
 	~MTMazeStudentSolver() = default;
-
-
-	void setDirectionRouteTB(Position at, Direction from)
-	{
-		unsigned int val = pMaze->getCell(at);
-		int dir = 0;
-
-		switch (from)
-		{
-		case Direction::East:
-			dir = 0x10000000;
-			break;
-		case Direction::West:
-			dir = 0x20000000;
-			break;
-		case Direction::South:
-			dir = 0x40000000;
-			break;
-		case Direction::North:
-			dir = 0x80000000;
-			break;
-		case Direction::Uninitialized:
-		default:
-			//assert(0);
-			break;
-		}
-
-		val |= dir;
-		pMaze->setCell(at, val);
-	}
-
-	Direction getDirectionRouteTB(Position at)
-	{
-		Direction dir = Direction::Uninitialized;
-		unsigned int val = pMaze->getCell(at);
-		val &= 0xF0000000;
-
-		switch (val)
-		{
-		case 0x10000000:
-			dir = Direction::East;
-			break;
-		case 0x20000000:
-			dir = Direction::West;
-			break;
-		case 0x40000000:
-			dir = Direction::South;
-			break;
-		case 0x80000000:
-			dir = Direction::North;
-			break;
-		default:
-			//assert(0);
-			break;
-		}
-
-		return dir;
-	}
 
 	void setDirectionRouteBT(Position at, Direction from)
 	{
@@ -114,10 +50,9 @@ public:
 			break;
 		}
 
-		val |= dir;                 // set only the BT direction bits
+		val |= dir;
 		pMaze->setCell(at, val);
 	}
-
 
 	Direction getDirectionRouteBT(Position at)
 	{
@@ -142,339 +77,392 @@ public:
 		}
 	}
 
-
-
-
-
-
-
-
-	Choice firstJunction1(Position pos)
+	Junction firstJunction_TB(Position pos, int threadId)
 	{
-		ListDirection Moves = pMaze->getMoves(pos);
+		Branches branches = pMaze->getBranches(pos, threadId);
 
-		if (Moves.size() == 1)
+		int size = branches.size();
+
+		if (size == 1)
 		{
-			Direction tmp = Moves.begin();
-			return followPath(pos, tmp);
+			Direction tmp = branches.getNext();
+			return followPath_TB(pos, tmp, threadId);
 		}
-		else
+		else // size != 0
 		{
-			Choice p(pos, Direction::Uninitialized, Moves);
-			return p;
+			return Junction(pos, Direction::Uninitialized, branches);
 		}
 	}
 
-	Choice followPath1(Position at, Direction dir)
+	Junction followPath_TB(Position at, Direction dir, int threadId)
 	{
-		ListDirection Choices;
+		Branches branches;
 		Direction go_to = dir;
 		Direction came_from = reverseDir(dir);
 		at = at.move(go_to);
 
-		do
+		while (true)
 		{
-			if (at == (pMaze->getEnd()))
+			// 1. Check if we hit the target
+			if (at == pMaze->getEnd())
 			{
-				//Choices = pMaze->getMoves(at);
-				//Choices.remove(came_from);
-				return Choice(at, came_from, Choices);
+				// Return a junction with empty branches
+				return Junction(at, came_from, branches);
 			}
 
-			Choices = pMaze->getMoves(at);
-			Choices.remove(came_from);
+			// 2. Get moves from current spot
+			branches = pMaze->getBranches(at, threadId);
+			branches.remove(came_from);
 
-			if (Choices.size() == 1)
+			// 3. It's a junction or dead end
+			int size = branches.size();
+			if (size > 1)
 			{
-				go_to = Choices.begin();
-				at = at.move(go_to);
-				came_from = reverseDir(go_to);
+				Direction mark = this->getDirectionRouteBT(at);
+				bool isOverlap = (mark != Direction::Uninitialized) && (mark != go_to);
+				return Junction(at, came_from, branches, isOverlap);
+			}
+			else if (size == 0)
+			{
+				return Junction(at, came_from, branches);
 			}
 
-		} while (Choices.size() == 1);
-
-		Choice pRet(at, came_from, Choices);
-
-		return pRet;
+			// 4. It is a corridor, keep walking
+			go_to = branches.getNext();
+			at = at.move(go_to);
+			came_from = reverseDir(go_to);
+		}
 	}
 
-	void walkThread_DFS(std::vector<Direction>*& pSolve, bool& exit)
+	Junction firstJunction_BT(Position pos, int threadId)
 	{
-		std::vector<Choice> pChoiceStack;
-		pChoiceStack.reserve(VECTOR_RESERVE_SIZE);
+		Branches branches = pMaze->getBranches(pos, threadId);
 
-		Choice ch;
+		int size = branches.size();
 
-		pChoiceStack.push_back(firstJunction(pMaze->getStart()));
-
-		while (!(pChoiceStack.size() == 0))
+		if (size == 1)
 		{
-			ch = pChoiceStack.back();
+			Direction tmp = branches.getNext();
+			return followPath_BT(pos, tmp, threadId);
+		}
+		else // size != 0
+		{
+			return Junction(pos, Direction::Uninitialized, branches);
+		}
+	}
 
-			if (ch.at == pMaze->getEnd())
+	Junction followPath_BT(Position at, Direction dir, int threadId)
+	{
+		Branches branches;
+		Direction go_to = dir;
+		Direction came_from = reverseDir(dir);
+
+		at = at.move(go_to);
+
+		while (true)
+		{
+			// Note: BT usually doesn't check for "Start" here unless you want early exit.
+			// BT's job is mostly to mark the path.
+			branches = pMaze->getBranches(at, threadId);
+			branches.remove(came_from);
+
+			int size = branches.size();
+
+			if (size > 1)
 			{
-				//pChoiceStack.pop_back();
-				Trace::out("Got Solution\n");
-				break; // solution found
+				// Mark this junction as visited by BT so TB can find it
+				this->setDirectionRouteBT(at, go_to);
+				return Junction(at, came_from, branches);
+			}
+			else if (size == 0)
+			{
+				return Junction(at, came_from, branches);
 			}
 
-			if (ch.isDeadend())
+			go_to = branches.getNext();
+			at = at.move(go_to);
+			came_from = reverseDir(go_to);
+		}
+	}
+
+	void walkThread_DFS_TB(int threadID, std::vector<Direction>*& pTB, Position& posOverlap, std::atomic<bool>& foundSolution)
+	{
+		std::vector<Junction> pJunctionStack;
+		pJunctionStack.reserve(VECTOR_RESERVE_SIZE);
+
+		pJunctionStack.push_back(firstJunction_TB(pMaze->getStart(), threadID));
+
+		while (!(pJunctionStack.empty()) && /*!foundSolution*/!foundSolution.load(std::memory_order_relaxed))
+		{
+			Junction& junc = pJunctionStack.back();
+
+			if (junc.at == pMaze->getEnd())
 			{
-				// backtrack.
-				pChoiceStack.pop_back();
-
-				if (!(pChoiceStack.size() == 0))
+				bool expected = false;
+				// Atomic check: if false, set to true. Only the winner enters.
+				//if (foundSolution.compare_exchange_strong(expected, true))
+				if (foundSolution.compare_exchange_strong(expected, true, std::memory_order_release, std::memory_order_relaxed))
 				{
-					pChoiceStack.back().pChoices.pop_front();
+					this->ReconstructPathTBForDFS(pTB, pJunctionStack, junc.at);
 				}
+				return;
+			}
 
+			if (junc.isOverlap)
+			{
+				//{
+				//	std::lock_guard<std::mutex> lock(mtx);
+				//	posOverlap = junc.at;
+				//}
+
+				posOverlap = junc.at;
+
+				bool expected = false;
+				//if (foundSolution.compare_exchange_strong(expected, true))
+				if (foundSolution.compare_exchange_strong(expected, true, std::memory_order_release, std::memory_order_relaxed))
+				{
+					this->ReconstructPathTBForDFS(pTB, pJunctionStack, junc.at);
+				}
+				return;
+			}
+
+			//----------------------------------------------------
+		    // Compute next direction (or discover deadend)
+		    //----------------------------------------------------
+			Direction dir;
+
+			if (junc.isDeadend())
+			{
+				dir = Direction::Uninitialized;
+			}
+			else
+			{
+				dir = junc.pBranches.getNextThreads(junc.at, this->pMaze);
+			}
+
+			//----------------------------------------------------
+			// If no valid direction, backtrack
+			//----------------------------------------------------
+			if (dir == Direction::Uninitialized)
+			{
+				pJunctionStack.pop_back();
+
+				if (!pJunctionStack.empty())
+				{
+					Junction& parent = pJunctionStack.back();
+					parent.pBranches.popCurrThreads(parent.at, this->pMaze);
+				}
 				continue;
 			}
 
-			pChoiceStack.push_back(followPath(ch.at, ch.pChoices.front()));
+			//----------------------------------------------------
+			// Otherwise follow the path and push next junction
+			//----------------------------------------------------
+			pJunctionStack.push_back(followPath_TB(junc.at, dir, threadID));
+		}
+	}
 
+	void walkThread_DFS_BT(int threadID, std::vector<Junction>& pBTStack, Position& posOverlap, std::atomic<bool>& foundSolution, std::atomic<bool>& foundOverlap)
+	{
+		std::vector<Junction> pJunctionStack;
+		pJunctionStack.reserve(VECTOR_RESERVE_SIZE);
+
+		pJunctionStack.push_back(firstJunction_BT(pMaze->getEnd(), threadID));
+
+		// Run until solution found (by TB) or stack empty
+		while (!(pJunctionStack.empty()) && /*!foundSolution*/!foundSolution.load(std::memory_order_relaxed))
+		{
+			Junction& junc = pJunctionStack.back();
+
+			//----------------------------------------------------
+			// Compute next direction (or discover deadend)
+			//----------------------------------------------------
+			Direction dir;
+
+			if (junc.isDeadend())
+			{
+				dir = Direction::Uninitialized;
+			}
+			else
+			{
+				dir = junc.pBranches.getNextThreads(junc.at, this->pMaze);
+			}
+
+			//----------------------------------------------------
+			// If no valid direction, backtrack
+			//----------------------------------------------------
+			if (dir == Direction::Uninitialized)
+			{
+				pJunctionStack.pop_back();
+
+				if (!pJunctionStack.empty())
+				{
+					Junction& parent = pJunctionStack.back();
+					parent.pBranches.popCurrThreads(parent.at, this->pMaze);
+				}
+				continue;
+			}
+
+			//----------------------------------------------------
+			// Otherwise follow the path and push next junction
+			//----------------------------------------------------
+			pJunctionStack.push_back(followPath_BT(junc.at, dir, threadID));
 		}
 
-		exit = true;
+		//----------------------------------------------------
+		// Post-Process: Recover the BT half of the path
+		//----------------------------------------------------
 
-		std::vector<Choice>::iterator iter = pChoiceStack.begin();
-		pSolve->reserve(VECTOR_RESERVE_SIZE);  // Optimized allocations...
+		// 1. Get the overlap position found by TB
+		Position pos = posOverlap;
+		//{
+		//	std::lock_guard<std::mutex> lock(mtx);
+		//	pos = posOverlap;
+		//}
 
-		// Get full solution path.
+		// If no overlap was set (TB finished alone, or no path found), exit.
+		if (pos == Position(-1, -1))
+		{
+			return;
+		}
+
+		printf("pos ( %d , %d)\n", pos.row, pos.col);
+
+		// 2. Unwind stack to find the connection point
+		while (!(pJunctionStack.empty()) && /*!foundOverlap*/!foundOverlap.load(std::memory_order_relaxed))
+		{
+			Junction& junc = pJunctionStack.back();
+
+			if (junc.at != pos)
+			{
+				pJunctionStack.pop_back();
+			}
+			else
+			{
+				bool expected = false;
+				//if (foundOverlap.compare_exchange_strong(expected, true))
+				if (foundOverlap.compare_exchange_strong(expected, true,
+					std::memory_order_release,
+					std::memory_order_relaxed))
+				{
+					pBTStack = std::move(pJunctionStack);
+				}
+				return;
+			}
+		}
+	}
+
+	void ReconstructPathTBForDFS(std::vector<Direction>*& fullPath, std::vector<Junction>& junctionStack, Position& posEnd)
+	{
+		fullPath->clear(); // Ensure clean slate
+		fullPath->reserve(VECTOR_RESERVE_SIZE);
+
 		Position curr = pMaze->getStart();
 		Direction go_to = Direction::Uninitialized;
 		Direction came_from = Direction::Uninitialized;
 
-		while (!(curr == pMaze->getEnd()))
+		// Iterator to read the choices made by the winning thread
+		auto iter = junctionStack.begin();
+
+		while (curr != posEnd)
 		{
-			ListDirection pMoves = pMaze->getMoves(curr);
+			Branches pBranches = pMaze->getBranches(curr, 0);
 
 			if (Direction::Uninitialized != came_from)
 			{
-				pMoves.remove(came_from);
+				pBranches.remove(came_from);
 			}
 
-			if (pMoves.size() == 1)
+			if (pBranches.size() == 1)
 			{
-				go_to = pMoves.front();
+				// Deterministic path (corridor), no stack lookup needed
+				go_to = pBranches.getNext();
 			}
-			else if (pMoves.size() > 1)
+			else if (pBranches.size() > 1)
 			{
-				if (iter == pChoiceStack.end())
+				// Junction: Consult the winner's stack
+				if (iter == junctionStack.end())
 				{
 					printf("Error in solution--Ran out of junction choices prematurely.\n");
 					assert(false);
 				}
 
-				go_to = iter->pChoices.front();
+				// Re-execute the decision stored in the stack
+				go_to = iter->pBranches.getCurr();
 				iter++;
 			}
-			else if (pMoves.size() == 0)
+			else if (pBranches.size() == 0)
 			{
-				printf("Error in solution--leads to deadend.");
+				printf("Error in solution--leads to deadend.\n");
 				assert(false);
 			}
 
-			pSolve->push_back(go_to);
+			fullPath->push_back(go_to);
 			curr = curr.move(go_to);
 			came_from = reverseDir(go_to);
 		}
 	}
 
-
-
-
-
-
-
-	Choice firstJunction(Position pos)
+	void ReconstructPathBTForDFS(std::vector<Direction>*& fullPath, std::vector<Junction>& junctionStack)
 	{
-		ListDirection Moves = pMaze->getMoves(pos);
+		// Safety check first
+		if (junctionStack.empty()) return;
 
-		if (Moves.size() == 1)
+		// We traverse the BT stack in reverse
+		auto iter = junctionStack.rbegin();
+
+		// The start of this walk is the Overlap position (top of the BT stack)
+		Position curr = iter->at;
+
+		Position posEnd = pMaze->getEnd();
+		Direction came_from = Direction::Uninitialized;
+		Direction go_to = Direction::Uninitialized;
+
+		while (curr != posEnd)
 		{
-			Direction tmp = Moves.begin();
-			return followPath(pos, tmp);
-		}
-		else
-		{
-			Choice p(pos, Direction::Uninitialized, Moves);
-			return p;
-		}
-	}
-
-	Choice followPath(Position at, Direction dir)
-	{
-		ListDirection Choices;
-		Direction go_to = dir;
-		Direction came_from = reverseDir(dir);
-
-		if (!pMaze->canMove(at, go_to))
-		{
-			return Choice(at, came_from, Choices, true);
-		}
-
-		// move to the first position
-		at = at.move(go_to);
-
-		while (true)
-		{
-			// Check if we reached the start or end
-			if (at == pMaze->getEnd())
+			// 1. Check Stack Synchronization FIRST (High Priority)
+			// If our current physical location matches the node recorded in the history,
+			// we MUST take the instruction from history, no matter the geometry.
+			if (/*iter != junctionStack.rend() && */curr == iter->at)
 			{
-				Choices = pMaze->getMoves(at);
-				Choices.remove(came_from);
-				return Choice(at, came_from, Choices);
-			}
+				go_to = iter->from;
 
-			// DEAD cell with mark
-			if (pMaze->isDeadCell(at))
-			{
-				return Choice(at, came_from, Choices, true);
+				// Move the history iterator forward
+				iter++;
 			}
-
-			// 3) Determine possible moves (excluding where we came from)
-			Choices = pMaze->getMoves(at);
-			Choices.remove(came_from);
-
-			if (Choices.size() == 0)
-			{
-				// Dead cell without/with mark
-				return Choice(at, came_from, Choices, true);
-			}
-			else if (Choices.size() == 1)
-			{
-				// Corridor — continue straight
-				go_to = Choices.begin();
-				at = at.move(go_to);
-				came_from = reverseDir(go_to);
-				continue; // keep moving
-			}
+			// 2. If not in stack, use Geometry (Corridor Logic)
 			else
 			{
-				// choice node
-				return Choice(at, came_from, Choices);
-			}
-		}
-	}
+				Branches pBranches = pMaze->getBranches(curr, 0);
 
-	void walkThread_s(std::vector<Direction>*& pSolve, bool& exit)
-	{
-		std::vector<Choice> pChoiceStack;
-		pChoiceStack.reserve(VECTOR_RESERVE_SIZE);
-
-		pChoiceStack.push_back(firstJunction(pMaze->getStart()));
-
-		Choice ch;
-
-		while (!(pChoiceStack.size() == 0))
-		{
-			ch = pChoiceStack.back();
-
-			if (ch.at == pMaze->getEnd())
-			{
-				pChoiceStack.pop_back();
-				Trace::out("Got Solution\n");
-				break; // solution found
-			}
-
-			if (ch.isDeadCell || pMaze->isDeadCell(ch.at))
-			{
-				// backtrack.
-				pChoiceStack.pop_back();
-
-				if (!(pChoiceStack.size() == 0))
+				if (came_from != Direction::Uninitialized)
 				{
-					pChoiceStack.back().pChoices.pop_front();
+					pBranches.remove(came_from);
 				}
 
-				continue;
-			}
-
-			if (ch.isDeadend())
-			{
-				// backtrack.
-				pChoiceStack.pop_back();
-
-				if (!(pChoiceStack.size() == 0))
+				if (pBranches.size() == 1)
 				{
-					pChoiceStack.back().pChoices.pop_front();
+					go_to = pBranches.getNext();
 				}
-
-				continue;
+				else
+				{
+					// If we are here, we have >1 branches but we are NOT in the stack,
+					// OR we have 0 branches (Dead end). Both are fatal errors.
+					// This means we walked off the correct path.
+					printf("Error: Reconstruct Logic Desync at (%d, %d). Size: %d\n", curr.row, curr.col, pBranches.size());
+					assert(false);
+				}
 			}
 
-			// found a valid path which is not blocked
-
-			Direction dir = ch.pChoices.front();
-			pChoiceStack.push_back(followPath(ch.at, dir));
-		}
-
-
-		std::vector<Choice>::iterator iter = pChoiceStack.begin();
-		pSolve->reserve(VECTOR_RESERVE_SIZE);  // Optimized allocations...
-
-		exit = true;
-
-		// Get full solution path.
-		Position curr = pMaze->getStart();
-		Direction go_to = Direction::Uninitialized;
-		Direction came_from = Direction::Uninitialized;
-
-		while (!(curr == pMaze->getEnd()))
-		{
-			ListDirection pMoves = pMaze->getMoves(curr);
-
-			if (Direction::Uninitialized != came_from)
-			{
-				pMoves.remove(came_from);
-			}
-
-			if (pMoves.size() == 1)
-			{
-				go_to = pMoves.front();
-			}
-			else if (pMoves.size() > 1)
-			{
-				go_to = iter++->pChoices.front();
-			}
-			else if (pMoves.size() == 0)
-			{
-				printf("Error in solution--leads to deadend.");
-				assert(false);
-			}
-
-			pSolve->push_back(go_to);
+			// 3. Execute Move
+			fullPath->push_back(go_to);
 			curr = curr.move(go_to);
 			came_from = reverseDir(go_to);
 		}
 	}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-	void walkThreadTB(std::vector<Direction>*& pSolve, bool& exit)
+	void walkThreadTB(std::vector<Direction>*& pSolve, bool& exit, bool& firstExit)
 	{
-		DWORD_PTR mask = (1ULL << 2);
-
-		HANDLE thread = GetCurrentThread();
-		DWORD_PTR result = SetThreadAffinityMask(thread, mask);
-
-		if (result == 0)
-		{
-			printf("Failed to set affinity\n");
-		}
-
 		pSolve->reserve(VECTOR_RESERVE_SIZE); // Optimized allocations...
 
 		// Get full solution path.
@@ -484,7 +472,7 @@ public:
 		Direction go_to = Direction::Uninitialized;
 		Direction came_from = Direction::Uninitialized;
 
-		while (!(curr == target)/* && !exit*/)
+		while (!(curr == target) && !firstExit)
 		{
 			if (getDirectionRouteBT(curr) != Direction::Uninitialized)
 			{
@@ -516,148 +504,42 @@ public:
 			pSolve->push_back(go_to);
 			curr = curr.move(go_to);
 			overlap = curr;
-			pMaze->setOverlap(curr);
+			//pMaze->setOverlap(curr);
 			came_from = reverseDir(go_to);
-
-			//std::this_thread::yield();
 		}
 
 		exit = true;
 
 		// Reconstruct path
-		curr = overlap;
-		while (curr != target)
+		if (firstExit)
 		{
-			Direction dir = getDirectionRouteBT(curr);
-			pSolve->push_back(dir);
-			curr = curr.move(dir);
+			curr = pMaze->getStart();
+			pSolve->clear();
+			while (curr != target)
+			{
+				Direction dir = getDirectionRouteBT(curr);
+				pSolve->push_back(dir);
+				curr = curr.move(dir);
+			}
+		}
+		else
+		{
+			curr = overlap;
+			while (curr != target)
+			{
+				Direction dir = getDirectionRouteBT(curr);
+				pSolve->push_back(dir);
+				curr = curr.move(dir);
+			}
 		}
 	}
 
-
-	void walkThread_BFS_TB(std::vector<Direction>*& pSolve, bool& exit)
+	void walkThread_BFS_BT(bool& exit, bool& firstExit)
 	{
-		bool found = false;
-		int count = 0;
-		Position start = pMaze->getStart();
-		Position end = pMaze->getEnd();
-		std::queue<Position> q;
-
-		q.push(start);
-		//Position overlap;
-
-		// Mark start route (no parent)
-		setDirectionRouteTB(start, Direction::Uninitialized);
-
-		while (!q.empty())
-		{
-			Position cur = q.front();
-			q.pop();
-			count++;
-
-			if (cur == end)
-			{
-				exit = true;
-				found = true;
-				break;
-			}
-
-			if (pMaze->isDeadCell(cur))
-			{
-				continue;
-			}
-
-			Direction came_from = getDirectionRouteTB(cur);
-
-			if (came_from != Direction::South && pMaze->canMove(cur, Direction::South))
-			{
-				Position nextPos = cur.move(Direction::South);
-
-				if (getDirectionRouteTB(nextPos) == Direction::Uninitialized)
-				{
-					// Mark parent
-					setDirectionRouteTB(nextPos, Direction::North);
-					q.push(nextPos);
-				}
-			}
-
-			if(came_from != Direction::West && pMaze->canMove(cur, Direction::West))
-			{
-				Position nextPos = cur.move(Direction::West);
-
-				if (getDirectionRouteTB(nextPos) == Direction::Uninitialized)
-				{
-					// Mark parent
-					setDirectionRouteTB(nextPos, Direction::East);
-					q.push(nextPos);
-				}
-			}
-
-			if (came_from != Direction::East && pMaze->canMove(cur, Direction::East))
-			{
-				Position nextPos = cur.move(Direction::East);
-
-				if (getDirectionRouteTB(nextPos) == Direction::Uninitialized)
-				{
-					// Mark parent
-					setDirectionRouteTB(nextPos, Direction::West);
-					q.push(nextPos);
-				}
-			}
-
-			if (came_from != Direction::North && pMaze->canMove(cur, Direction::North))
-			{
-				Position nextPos = cur.move(Direction::North);
-
-				if (getDirectionRouteTB(nextPos) == Direction::Uninitialized)
-				{
-					// Mark parent
-					setDirectionRouteTB(nextPos, Direction::South);
-					q.push(nextPos);
-				}
-			}
-
-			std::this_thread::yield();
-		}
-
-		Trace::out("Count1: %d\n", count);
-
-		assert(found);
-		exit = true;
-
-		pSolve->reserve(VECTOR_RESERVE_SIZE);
-		// Reconstruct path
-		Position curr = end;
-		while (curr != start)
-		{
-			Direction dir = getDirectionRouteTB(curr);
-			pSolve->push_back(reverseDir(dir));
-			curr = curr.move(dir);
-		}
-
-		std::reverse(pSolve->begin(), pSolve->end());
-	}
-
-	void walkThread_BFS_BT(bool& exit)
-	{
-
-		DWORD_PTR mask = (1ULL << 1);
-
-		HANDLE thread = GetCurrentThread();
-		DWORD_PTR result = SetThreadAffinityMask(thread, mask);
-
-		if (result == 0)
-		{
-			printf("Failed to set affinity\n");
-		}
-
-
-		bool found = false;
 		Position start = pMaze->getEnd();
 		Position end = pMaze->getStart();
 		std::queue<Position> q;
 		q.push(start);
-		int count = 0;
 
 		// Mark start route (no parent)
 		setDirectionRouteBT(start, Direction::Uninitialized);
@@ -666,7 +548,6 @@ public:
 		{
 			Position cur = q.front();
 			q.pop();
-			count++;
 
 			if (pMaze->isDeadCell(cur))
 			{
@@ -675,59 +556,435 @@ public:
 
 			if (cur == end)
 			{
-				found = true;
+				firstExit = true;
 				break;
 			}
 
-			ListDirection moves = pMaze->getMoves(cur);
-	
-			moves.remove(getDirectionRouteBT(cur));
+			Direction came_from = getDirectionRouteBT(cur);
 
-			Direction dir = moves.front();
-			while (dir != Direction::Uninitialized)
+			if (came_from != Direction::South && pMaze->canMove(cur, Direction::South))
 			{
-				Position nextPos = cur.move(dir);
+				Position nextPos = cur.move(Direction::South);
 
-				if (getDirectionRouteBT(nextPos) != Direction::Uninitialized)
+				if (getDirectionRouteBT(nextPos) == Direction::Uninitialized)
 				{
-					moves.pop_front();
-					dir = moves.front();
-					continue; // already visited
+					// Mark parent
+					setDirectionRouteBT(nextPos, Direction::North);
+					q.push(nextPos);
 				}
+			}
 
-				setDirectionRouteBT(nextPos, reverseDir(dir));
+			if (came_from != Direction::West && pMaze->canMove(cur, Direction::West))
+			{
+				Position nextPos = cur.move(Direction::West);
 
-				q.push(nextPos);
+				if (getDirectionRouteBT(nextPos) == Direction::Uninitialized)
+				{
+					// Mark parent
+					setDirectionRouteBT(nextPos, Direction::East);
+					q.push(nextPos);
+				}
+			}
 
-				moves.pop_front();
-				dir = moves.front();
+			if (came_from != Direction::East && pMaze->canMove(cur, Direction::East))
+			{
+				Position nextPos = cur.move(Direction::East);
+
+				if (getDirectionRouteBT(nextPos) == Direction::Uninitialized)
+				{
+					// Mark parent
+					setDirectionRouteBT(nextPos, Direction::West);
+					q.push(nextPos);
+				}
+			}
+
+			if (came_from != Direction::North && pMaze->canMove(cur, Direction::North))
+			{
+				Position nextPos = cur.move(Direction::North);
+
+				if (getDirectionRouteBT(nextPos) == Direction::Uninitialized)
+				{
+					// Mark parent
+					setDirectionRouteBT(nextPos, Direction::South);
+					q.push(nextPos);
+				}
 			}
 
 			std::this_thread::yield();
 		}
-
-		Trace::out("Count2: %d\n", count);
 	}
 
-	void LaunchPruningThreads(int N, std::vector<Direction>*& pTB)
+	void PruneDeadCellsHeadChunk(int N, bool& exit, CircularData& outQue, CircularData& inQue)
+	{
+		int chunk = pMaze->height / N;
+		int remainder = pMaze->height % N;
+
+		int rowStart = 0;
+		int rowEnd = chunk + (remainder > 0 ? 1 : 0);
+
+		std::vector<Position> stackDFS;
+		stackDFS.reserve(2024);
+
+
+		// Step 1: find all initial degree-1 cells
+		for (int r = rowStart; r < rowEnd; ++r)
+		{
+			for (int c = 0; c < pMaze->width; ++c)
+			{
+				Position pos(r, c);
+
+				if (pos == pMaze->getStart())
+				{
+					continue;
+				}
+
+				ListDirection moves = pMaze->getMoves(pos);
+				if (moves.size() <= 1)
+				{
+					stackDFS.push_back(pos);
+				}
+			}
+		}
+
+		while (!exit)
+		{
+			// Step 2: BFS to mark dead cells
+			while (!stackDFS.empty())
+			{
+				Position pos = stackDFS.back();
+				stackDFS.pop_back();
+
+				if (pMaze->isDeadCell(pos))
+				{
+					continue;
+				}
+				// Mark as dead
+				pMaze->setDead(pos);
+
+				// Check neighbors
+				ListDirection neighborChoices = pMaze->getMoves(pos);
+
+				Direction dir = neighborChoices.front(); // only one or zero neighbor Choice
+
+				if (Direction::Uninitialized != dir)
+				{
+					Position neighborPos = pos.move(dir);
+
+					// deactivate dead cell
+					switch (dir)
+					{
+					case Direction::North:
+					{
+						pMaze->setSouth(neighborPos);
+						break;
+					}
+					case Direction::South:
+					{
+						pMaze->setSouth(pos);
+						break;
+					}
+					case Direction::East:
+					{
+						pMaze->setEast(pos);
+						break;
+					}
+					case Direction::West:
+					{
+						pMaze->setEast(neighborPos);
+						break;
+					}
+					case Direction::Uninitialized:
+					default:
+						assert(false);
+						break;
+					}
+
+					if (neighborPos == pMaze->getStart())
+					{
+						continue;
+					}
+
+
+					ListDirection neighborMoves = pMaze->getMoves(neighborPos);
+
+					if (neighborMoves.size() <= 1)
+					{
+						if (neighborPos.row < rowEnd)
+						{
+							//queBFS.push(neighborPos);
+							stackDFS.push_back(neighborPos);
+						}
+						else
+						{
+							outQue.PushBack(neighborPos);
+						}
+					}
+				}
+			}
+
+			// step 3: Mark the dead cells coming from other chunk
+			Position pPos;
+			while (inQue.PopFront(pPos))
+			{
+				stackDFS.push_back(pPos);
+			}
+
+			std::this_thread::yield();
+		}
+	}
+
+	void PruneDeadCellsTailChunk(int N, bool& exit, CircularData& outQue, CircularData& inQue)
+	{
+		int chunk = pMaze->height / N;
+		int remainder = pMaze->height % N;
+
+		int rowStart = (N - 1) * chunk + std::min(N - 1, remainder);
+		int rowEnd = pMaze->height;
+
+		std::vector<Position> stackDFS;
+		stackDFS.reserve(2024);
+
+		// Step 1: find all initial degree-1 cells
+		for (int r = rowStart; r < rowEnd; ++r)
+		{
+			for (int c = 0; c < pMaze->width; ++c)
+			{
+				Position pos(r, c);
+
+				if (pos == pMaze->getEnd())
+				{
+					continue;
+				}
+
+				ListDirection moves = pMaze->getMoves(pos);
+				if (moves.size() <= 1)
+				{
+					stackDFS.push_back(pos);
+				}
+			}
+		}
+
+		while (!exit)
+		{
+			// Step 2: BFS to mark dead cells
+			while (!stackDFS.empty())
+			{
+				Position pos = stackDFS.back();
+				stackDFS.pop_back();
+
+				if (pMaze->isDeadCell(pos))
+				{
+					continue; // already dead
+				}
+				// Mark as dead
+				pMaze->setDead(pos);
+
+				// Check neighbors
+				ListDirection neighborChoices = pMaze->getMoves(pos);
+
+				Direction dir = neighborChoices.front(); // only one or zero neighbor Choice
+
+				if (Direction::Uninitialized != dir)
+				{
+					Position neighborPos = pos.move(dir);
+
+					// deactivate dead cell
+					switch (dir)
+					{
+					case Direction::North:
+					{
+						pMaze->setSouth(neighborPos);
+						break;
+					}
+					case Direction::South:
+					{
+						pMaze->setSouth(pos);
+						break;
+					}
+					case Direction::East:
+					{
+						pMaze->setEast(pos);
+						break;
+					}
+					case Direction::West:
+					{
+						pMaze->setEast(neighborPos);
+						break;
+					}
+					case Direction::Uninitialized:
+					default:
+						assert(false);
+						break;
+					}
+
+					if (neighborPos == pMaze->getEnd())
+					{
+						continue;;
+					}
+
+					ListDirection neighborMoves = pMaze->getMoves(neighborPos);
+
+					if (neighborMoves.size() <= 1)
+					{
+						if (neighborPos.row < rowStart)
+						{
+							outQue.PushBack(neighborPos);
+						}
+						else
+						{
+							stackDFS.push_back(neighborPos);
+						}
+					}
+				}
+			}
+
+			// step 3: Mark the dead cells coming from other chunk
+			Position pPos;
+			while (inQue.PopFront(pPos))
+			{
+				stackDFS.push_back(pPos);
+			}
+
+			std::this_thread::yield();
+		}
+	}
+
+	void PruneDeadCellsMiddleChunk(int N, int thdID, bool& exit, CircularData& outQueTop, CircularData& outQueBottom, CircularData& inQue)
+	{
+		int chunk = pMaze->height / N;
+		int remainder = pMaze->height % N;
+
+		int rowStart = thdID * chunk + std::min(thdID, remainder);
+		int rowEnd = (thdID + 1) * chunk + std::min(thdID + 1, remainder);
+
+		std::vector<Position> stackDFS;
+		stackDFS.reserve(2024);
+
+		// Step 1: find all initial degree-1 cells
+		for (int r = rowStart; r < rowEnd; ++r)
+		{
+			for (int c = 0; c < pMaze->width; ++c)
+			{
+				Position pos(r, c);
+
+				ListDirection moves = pMaze->getMoves(pos);
+				if (moves.size() <= 1)
+				{
+					stackDFS.push_back(pos);
+				}
+			}
+		}
+
+		while (!exit)
+		{
+			// Step 2: BFS to mark dead cells
+			while (!stackDFS.empty())
+			{
+				Position pos = stackDFS.back();
+				stackDFS.pop_back();
+
+				if (pMaze->isDeadCell(pos))
+				{
+					continue; // already dead
+				}
+				// Mark as dead
+				pMaze->setDead(pos);
+
+				// Check neighbors
+				ListDirection neighborChoices = pMaze->getMoves(pos);
+
+				Direction dir = neighborChoices.front(); // only one or zero neighbor Choice
+
+				if (Direction::Uninitialized != dir)
+				{
+					Position neighborPos = pos.move(dir);
+
+					// deactivate dead cell
+					switch (dir)
+					{
+					case Direction::North:
+					{
+						pMaze->setSouth(neighborPos);
+						break;
+					}
+					case Direction::South:
+					{
+						pMaze->setSouth(pos);
+						break;
+					}
+					case Direction::East:
+					{
+						pMaze->setEast(pos);
+						break;
+					}
+					case Direction::West:
+					{
+						pMaze->setEast(neighborPos);
+						break;
+					}
+					case Direction::Uninitialized:
+					default:
+						assert(false);
+						break;
+					}
+
+					ListDirection neighborMoves = pMaze->getMoves(neighborPos);
+
+					if (neighborMoves.size() <= 1)
+					{
+						if (neighborPos.row < rowStart)
+						{
+							outQueTop.PushBack(neighborPos);
+						}
+						else if (neighborPos.row >= rowEnd)
+						{
+							outQueBottom.PushBack(neighborPos);
+						}
+						else
+						{
+							stackDFS.push_back(neighborPos);
+						}
+					}
+				}
+			}
+
+			// step 3: Mark the dead cells coming from other chunk
+			Position pPos;
+			while (inQue.PopFront(pPos))
+			{
+				stackDFS.push_back(pPos);
+			}
+
+			std::this_thread::yield();
+		}
+	}
+
+	void StartParallelPruning_Method1(int N, std::vector<Direction>*& pTB)
 	{
 		bool exit = false;
-
+		bool firstExit = false;
 
 		std::vector<CircularData> queues((size_t)N);
 		std::vector<std::thread> midThreads;
 
-		std::thread headThread(&Maze::PruneDeadCellsHeadChunk,
-			pMaze,
+		std::thread headThread(&MTMazeStudentSolver::PruneDeadCellsHeadChunk,
+			this,
 			N,
 			std::ref(exit),
 			std::ref(queues[1]),
 			std::ref(queues[0]));
 
+		std::thread tailThread(&MTMazeStudentSolver::PruneDeadCellsTailChunk,
+			this,
+			N,
+			std::ref(exit),
+			std::ref(queues[(size_t)N - 2]),
+			std::ref(queues[(size_t)N - 1]));
+
 		for (int thdID = 1; thdID < N - 1; thdID++)
 		{
-			midThreads.emplace_back(&Maze::PruneDeadCellsMiddleChunk,
-				pMaze,
+			midThreads.emplace_back(&MTMazeStudentSolver::PruneDeadCellsMiddleChunk,
+				this,
 				N,
 				thdID,
 				std::ref(exit),
@@ -735,28 +992,10 @@ public:
 				std::ref(queues[(size_t)thdID + 1]), // outQue to next
 				std::ref(queues[(size_t)thdID]));    // local queue
 		}
-
-		std::thread tailThread(&Maze::PruneDeadCellsTailChunk,
-			pMaze,
-			N,
-			std::ref(exit),
-			std::ref(queues[(size_t)N - 2]),
-			std::ref(queues[(size_t)N - 1]));
 		
-		
-		std::thread walk1(&MTMazeStudentSolver::walkThread_BFS_BT,
-			this,
-			std::ref(exit)
-		);
+		std::thread walkReverse(&MTMazeStudentSolver::walkThread_BFS_BT, this, std::ref(exit), std::ref(firstExit));
 
-		//std::thread walk2(&MTMazeStudentSolver::walkThread_DFS,
-		//	this,
-		//	std::ref(pTB),
-		//	std::ref(exit)
-		//);
-
-
-		this->/*walkThread_DFS*//*walkThread_s*/walkThreadTB(pTB, exit);
+		this->walkThreadTB(pTB, exit, firstExit);
 
 		headThread.join();
 		tailThread.join();
@@ -765,19 +1004,56 @@ public:
 			t.join();
 		}
 
+		walkReverse.join();
+	}
 
-		walk1.join();
-		//walk2.join();
+	void StartParallelDFSWalking_Method2(int TBN, int BTN, std::vector<Direction>*& pTB)
+	{
+		// 1. Shared State Initialization
+		std::atomic<bool> foundSolution(false); // Flags if ANY thread reaches goal/overlap
+		std::atomic<bool> foundOverlap(false);  // Flags specifically if BT connects to TB
+		//std::mutex mtx;                         // Protects posOverlap
+		Position posOverlap(-1, -1);            // The meeting point coordinates
+
+		std::vector<Junction> pBTStack;         // To store the winning BT path stack
+		std::vector<std::thread> threads;
+
+		// 2. Launch Top-Bottom (TB) Threads
+	    // These threads fill 'pTB' directly if they win
+		for (int i = 0; i < TBN; ++i)
+		{
+			threads.emplace_back(&MTMazeStudentSolver::walkThread_DFS_TB, this,
+				i, std::ref(pTB), std::ref(posOverlap), std::ref(foundSolution));
+		}
+
+		// 3. Launch Bottom-Top (BT) Threads
+	    // These threads fill 'pBTStack' if they connect
+	    // Note: We offset the threadID by TBN so they have unique indices in the Branch structs
+		for (int i = 0; i < BTN; ++i)
+		{
+			threads.emplace_back(&MTMazeStudentSolver::walkThread_DFS_BT, this,
+				i + TBN, std::ref(pBTStack), std::ref(posOverlap), std::ref(foundSolution), std::ref(foundOverlap));
+		}
+
+		// 4. Wait for completion
+		for (auto& t : threads)
+		{
+			if (t.joinable()) t.join();
+		}
+
+		if (foundOverlap.load())
+		{
+			this->ReconstructPathBTForDFS(pTB, pBTStack);
+		}
+
 	}
 
 	std::vector<Direction> *Solve() override
-	{
-		// Do your magic here
-
+	{	
 		std::vector<Direction>* pTB = new std::vector<Direction>();
 
-		this->LaunchPruningThreads(8, pTB);
-
+		//this->StartParallelPruning_Method1(24, pTB);
+		this->StartParallelDFSWalking_Method2(10, 10, pTB);
 		return pTB;
 	}
 };

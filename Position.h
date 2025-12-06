@@ -1,7 +1,3 @@
-//------------------------------------------------------
-// Copyright 2025, Ed Keenan, all rights reserved.
-//------------------------------------------------------
-
 #ifndef POSITION_MAZE_H
 #define POSITION_MAZE_H
 

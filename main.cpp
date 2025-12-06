@@ -1,6 +1,7 @@
-//------------------------------------------------------
-// Copyright 2025, Ed Keenan, all rights reserved.
-//------------------------------------------------------
+#include <cstdio>
+#include <cstring>
+#include <vector>
+#include <chrono>
 
 #include "STMazeSolverDFS.h"
 #include "STMazeSolverBFS.h"
@@ -12,24 +13,57 @@
 // do not run in debugger... copy exe to data directory
 #define FINAL_SUBMIT 0
 
+// --- Linux Compatible Timer (High Precision) ---
+// Uses high_resolution_clock to ensure the most accurate 
+// fractional seconds (decimal point) possible on the system.
+class PerformanceTimer
+{
+public:
+	void Tic()
+	{
+		start_time = std::chrono::high_resolution_clock::now();
+	}
+	void Toc()
+	{
+		end_time = std::chrono::high_resolution_clock::now();
+	}
+	double TimeInSeconds()
+	{
+		// Casts duration to double-precision seconds
+		std::chrono::duration<double> diff = end_time - start_time;
+		return diff.count();
+	}
+private:
+	std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
+	std::chrono::time_point<std::chrono::high_resolution_clock> end_time;
+};
+
 
 int main(int argc, char *argv[]) 
 {
-	AZUL_UNUSED_VAR(argc);
-	AZUL_UNUSED_VAR(argv);
+	(void)argc;
 
-	START_BANNER_MAIN("--MAIN--");
+	printf("--MAIN--\n");
 
 #if !FINAL_SUBMIT
-	char inFileName[INPUT_NAME_SIZE] = "Maze20Kx20K_B.data";
+	char inFileName[INPUT_NAME_SIZE] = "Maze15Kx15K.data";
+	(void)argv;
 #else
 	char inFileName[INPUT_NAME_SIZE];
 	memset(inFileName,0x0,INPUT_NAME_SIZE);
-	strcpy_s( inFileName, INPUT_NAME_SIZE, argv[1]);
+	if (argc > 1)
+	{
+		snprintf(inFileName, INPUT_NAME_SIZE, "%s", argv[1]);
+	}
+	else
+	{
+		printf("Error: FINAL_SUBMIT is 1, but no filename argument provided.\n");
+		return 1;
+	}
 #endif
 
-	Trace::out("\n");
-	Trace::out2("Maze: start(%s) ------------\n",inFileName);
+	printf("\n");
+	printf("Maze: start(%s) ------------\n",inFileName);
 
 	// Create timers 
 	PerformanceTimer ST_DFS_Timer;
@@ -40,7 +74,7 @@ int main(int argc, char *argv[])
 	Maze *pMaze;
 
 	// -- STMazeSolverBFS -----------------------------------------------------------
-	Trace::out2("\n Maze: STMazeSolverBFS\n");
+	printf("\n Maze: STMazeSolverBFS\n");
 
 	// Create and load Maze - Data is atomic_int
 		pMaze = new Maze();
@@ -62,7 +96,7 @@ int main(int argc, char *argv[])
 		delete pMaze;
 
 	// -- STMazeSolverDFS -----------------------------------------------------------
-	Trace::out2("\n Maze: STMazeSolverDFS\n");
+	printf("\n Maze: STMazeSolverDFS\n");
 
 		// Create and load Maze - Data is atomic_int
 		pMaze = new Maze();
@@ -84,7 +118,7 @@ int main(int argc, char *argv[])
 		delete pMaze;
 
 	// -- Multi-Threaded Student Solver ----------------------------------------------
-	Trace::out2("\n Maze: MTStudentSolver\n");
+	printf("\n Maze: MTStudentSolver\n");
 
 		// Create and load Maze - Data is atomic_int
 		pMaze = new Maze();
@@ -111,13 +145,13 @@ int main(int argc, char *argv[])
 		double ST_BFSTime = ST_BFS_Timer.TimeInSeconds();
 		double MT_StudentTime = MT_Student_Timer.TimeInSeconds();
 
-		Trace::out2("\n");
-		Trace::out2("Results (%s):\n\n",inFileName);
-		Trace::out2("   BFS      : %f s\n",ST_BFSTime);
-		Trace::out2("   DFS      : %f s\n",ST_DFSTime);
-		Trace::out2("   Student  : %f s\n",MT_StudentTime);
+		printf("\n");
+		printf("Results (%s):\n\n",inFileName);
+		printf("   BFS      : %f s\n",ST_BFSTime);
+		printf("   DFS      : %f s\n",ST_DFSTime);
+		printf("   Student  : %f s\n",MT_StudentTime);
 
-	Trace::out2("\nMaze: end() --------------\n\n"); 
+		printf("\nMaze: end() --------------\n\n");
 
 }
 

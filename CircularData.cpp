@@ -3,6 +3,7 @@
 //----------------------------------------------------------------------------- 
 
 #include "CircularData.h"
+#include <assert.h>
 
 bool CircularData::IsEmpty()
 {
@@ -15,11 +16,6 @@ CircularData::CircularData()
 	empty(true),
 	full(false)
 {
-	//// initialized data
-	//for(int i = 0; i < CIRCULAR_DATA_SIZE; i++)
-	//{
-	//	this->data[i] = 0;
-	//}
 }
 
 bool CircularData::PushBack(Position pPos)
@@ -41,7 +37,7 @@ bool CircularData::PushBack(Position pPos)
 		if(this->front == this->back)
 		{
 			this->full = true;
-			Trace::out("full ===================\n");
+			printf("full ===================\n");
 			// Safety
 			assert(false);
 		}
@@ -123,107 +119,4 @@ unsigned int CircularData::CircularIndex::Index() const
 	return this->index;
 }
 //---  End of File ---
-
-
-
-//#include "CircularData.h"
-//#include <cassert>
-//
-//CircularData::CircularData()
-//{
-//    head.store(0, std::memory_order_relaxed);
-//    tail.store(0, std::memory_order_relaxed);
-//}
-//
-//// -------------------------------------------------------------
-//// PushBack (Producer only) - const Position&
-//// -------------------------------------------------------------
-//bool CircularData::PushBack(const Position& pPos)
-//{
-//    size_t t = tail.load(std::memory_order_relaxed);
-//    size_t h = head.load(std::memory_order_acquire);
-//
-//    size_t next = (t + 1) & (CIRCULAR_DATA_SIZE - 1);
-//
-//    if (next == h)
-//    {
-//        // full
-//        Trace::out("full ===================\n");
-//
-//        return false;
-//    }
-//
-//    buffer[t] = pPos;
-//
-//    // publish write to consumer
-//    tail.store(next, std::memory_order_release);
-//
-//    return true;
-//}
-//
-//// -------------------------------------------------------------
-//// PushBack (Producer only) - rvalue
-//// -------------------------------------------------------------
-//bool CircularData::PushBack(Position&& pPos)
-//{
-//    size_t t = tail.load(std::memory_order_relaxed);
-//    size_t h = head.load(std::memory_order_acquire);
-//
-//    size_t next = (t + 1) & (CIRCULAR_DATA_SIZE - 1);
-//
-//    if (next == h)
-//    {
-//
-//        Trace::out("full ===================\n");
-//        return false; // full
-//    }
-//
-//    buffer[t] = std::move(pPos);
-//
-//    tail.store(next, std::memory_order_release);
-//
-//    return true;
-//}
-//
-//// -------------------------------------------------------------
-//// PopFront (Consumer only)
-//// -------------------------------------------------------------
-//bool CircularData::PopFront(Position& pPos)
-//{
-//    size_t h = head.load(std::memory_order_relaxed);
-//    size_t t = tail.load(std::memory_order_acquire);
-//
-//    if (h == t)
-//    {
-//        // empty
-//        return false;
-//    }
-//
-//    pPos = buffer[h];
-//
-//    head.store((h + 1) & (CIRCULAR_DATA_SIZE - 1),
-//        std::memory_order_release);
-//
-//    return true;
-//}
-//
-//// -------------------------------------------------------------
-//// Check empty (safe for SPSC)
-//// -------------------------------------------------------------
-//bool CircularData::IsEmpty() const
-//{
-//    return head.load(std::memory_order_acquire) ==
-//        tail.load(std::memory_order_acquire);
-//}
-//
-//// -------------------------------------------------------------
-//// Check full (safe for SPSC)
-//// -------------------------------------------------------------
-//bool CircularData::IsFull() const
-//{
-//    size_t h = head.load(std::memory_order_acquire);
-//    size_t t = tail.load(std::memory_order_acquire);
-//
-//    return ((t + 1) & (CIRCULAR_DATA_SIZE - 1)) == h;
-//}
 

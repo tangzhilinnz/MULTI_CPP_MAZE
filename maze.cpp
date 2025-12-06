@@ -1,23 +1,16 @@
-//------------------------------------------------------
-// Copyright 2025, Ed Keenan, all rights reserved.
-//------------------------------------------------------
-
-// Algorithm & Maze generation - refactored and modified from material on the internet
-//    Influenced by many different solvers and maze categories
-//    Purpose of the maze is to create a concurrent problem set for C++ concurrency class
-//    Maze solving algorithm and generators were derived from University of Maryland - Java Development
-
 #include <atomic>
 #include <array>
 #include <vector>
 #include <memory>
 #include <queue>
+#include <fstream>  // REQUIRED FOR LINUX IO
+#include <cstring>  // REQUIRED FOR memcpy, memset
+#include <cstdio>   // REQUIRED FOR printf
+#include <assert.h>  // REQUIRED FOR assert
 
 #include "Maze.h"
-#include "File.h"
+//#include "File.h"
 #include "Choice.h"
-
-using namespace Azul;
 
 enum class InternalBit
 {
@@ -25,6 +18,10 @@ enum class InternalBit
 	SOUTH_BIT = 2,
 	DEAD_BIT = 4,
 	OVERLAP_BIT = 8,
+
+	BRANCH_OCCUPIED_BIT = 16,
+	BRANCH_DEAD_BIT = 32,
+
 };
 
 struct FileHeader
@@ -58,86 +55,107 @@ Maze::Maze( int _width, int _height)
 
 void Maze::Load( const char * const inFileName )
 {
-	File::Handle fh;
-	File::Error  ferror;
+	// --- LINUX/STANDARD C++ IO REPLACEMENT ---
 
-	//----------- Open to Read  --------------------------------
-	ferror = File::Open(fh, inFileName, File::Mode::READ );
-	assert( ferror == File::Error::SUCCESS);
+	// 1. Open file using standard ifstream
+	std::ifstream file(inFileName, std::ios::binary | std::ios::ate);
+	if (!file.is_open())
+	{
+		printf("Error: Cannot open file %s\n", inFileName);
+		assert(false);
+		return;
+	}
 
-	//----------- Seek ------------------------------------------
+	// 2. Get file size
+	std::streamsize fileSize = file.tellg();
+	file.seekg(0, std::ios::beg);
 
-	ferror = File::Seek( fh, File::Position::END, 0 );
-	assert( ferror == File::Error::SUCCESS);
+	if (fileSize <= 0)
+	{
+		assert(false);
+		return;
+	}
 
-	DWORD fileSize;
-	ferror = File::Tell( fh, fileSize );
-	assert( ferror == File::Error::SUCCESS);
+	// 3. Read into a vector (Safe memory management)
+	std::vector<unsigned char> buffer(fileSize);
+	if (!file.read((char*)buffer.data(), fileSize))
+	{
+		assert(false);
+		return;
+	}
 
-	unsigned char *pBuff = new unsigned char[fileSize];
-	assert( pBuff != 0 );
-	unsigned char *pBuff_Original = pBuff;
-	
-	ferror = File::Seek( fh, File::Position::BEGIN, 0 );
-	assert( ferror == File::Error::SUCCESS);
-
-	ferror = File::Read( fh, pBuff, fileSize );
-	assert( ferror == File::Error::SUCCESS);
-
-	ferror = File::Close( fh );
-	assert( ferror == File::Error::SUCCESS );
+	// File closes automatically here via destructor, or use file.close()
 
 	// ----- Everything is in memory ------
 	// --- Now decompress it 
 
-	FileHeader *pHdr;
+	unsigned char* pBuff = buffer.data();
+	size_t offset = 0;
 
-	pHdr = (FileHeader *) pBuff;
+	// Use memcpy to avoid alignment crashes on non-Windows systems
+	FileHeader header;
+	assert(fileSize >= sizeof(FileHeader));
+	std::memcpy(&header, pBuff, sizeof(FileHeader));
 
-		// copy it to Maze data
-		this->height = pHdr->height;
-		this->width = pHdr->width;
-		this->solvable = pHdr->solvable;
+	offset += sizeof(FileHeader);
 
-	pBuff += sizeof(FileHeader);
+	// copy it to Maze data
+	this->height = header.height;
+	this->width = header.width;
+	this->solvable = header.solvable;
 
-	int *pIntData = (int *)pBuff;
+	int* pIntData = (int*)(pBuff + offset);
 
 	// reserve the space
 	unsigned int totalSize = (unsigned int)(this->width * this->height);
-	this->poMazeData = new std::atomic_uint[ totalSize ];
-	assert(this->poMazeData );
-	memset(this->poMazeData, 0x0, (this->width * this->height) * sizeof(unsigned int) );
 
-	Position pos = Position(0,0);
-	while(pos.row < height) 
+	// Safety check against double allocation if Load is called twice
+	if (this->poMazeData != nullptr) delete[] this->poMazeData;
+
+	this->poMazeData = new std::atomic_uint[totalSize];
+	assert(this->poMazeData);
+
+	// Initialize atomic array safely
+	for (unsigned int i = 0; i < totalSize; i++) {
+		this->poMazeData[i].store(0, std::memory_order_relaxed);
+	}
+
+	Position pos = Position(0, 0);
+
+	// We need to track how many bytes we've read from the int stream
+	// Note: pIntData is a pointer to the raw buffer. On x86 Linux this is fine.
+	// On strict alignment architectures (ARM), pIntData access might need memcpy.
+	// Assuming x86/x64 Linux here.
+
+	while (pos.row < height)
 	{
 		pos = Position(pos.row, 0);
-		while(pos.col < width) 
+		while (pos.col < width)
 		{
-			int bits = *pIntData++;
+			// Safe read of unaligned integer
+			int bits;
+			std::memcpy(&bits, pIntData, sizeof(int));
+			pIntData++;
 
-			for( int bit = 0; (bit < 16 && pos.col < width); bit++) 
+			for (int bit = 0; (bit < 16 && pos.col < width); bit++)
 			{
-				if((bits & 1) == 1)
+				if ((bits & 1) == 1)
 				{
-					setEast(pos); 
+					setEast(pos);
 				}
 
-				if((bits & 2) == 2)
+				if ((bits & 2) == 2)
 				{
 					setSouth(pos);
 				}
 
 				bits >>= 2;
-				
+
 				pos = pos.move(Direction::East);
 			}
 		}
 		pos = pos.move(Direction::South);
 	}
-
-	delete pBuff_Original;
 }
  
 
@@ -160,6 +178,30 @@ ListDirection Maze::getMoves(Position pos)
 	if(canMove(pos,Direction::North))
 	{
 		result.north = Direction::North;
+	}
+
+	return result;
+}
+
+Branches Maze::getBranches(Position pos, int threadId)
+{
+	Branches result(threadId);
+
+	if (canMove(pos, Direction::South))
+	{
+		result.add(Direction::South);
+	}
+	if (canMove(pos, Direction::East))
+	{
+		result.add(Direction::East);
+	}
+	if (canMove(pos, Direction::West))
+	{
+		result.add(Direction::West);
+	}
+	if (canMove(pos, Direction::North))
+	{
+		result.add(Direction::North);
 	}
 
 	return result;
@@ -238,13 +280,16 @@ void Maze::setSouth(Position pos)
 
 unsigned int Maze::getCell(Position pos) 
 {
-	unsigned int val = poMazeData[pos.row * this->width + pos.col];
+	unsigned int val = poMazeData[pos.row * this->width + pos.col].load(std::memory_order_relaxed);
+	//unsigned int val = poMazeData[pos.row * this->width + pos.col].load(std::memory_order_acquire);
 	return val;
 }
 	
 void Maze::setCell(Position pos, unsigned int val) 
 {
-	this->poMazeData[pos.row * this->width + pos.col] = val;
+	//this->poMazeData[pos.row * this->width + pos.col] = val;
+	this->poMazeData[pos.row * this->width + pos.col].store(val, std::memory_order_relaxed);
+	//this->poMazeData[pos.row * this->width + pos.col].store(val, std::memory_order_release);
 }
 
 bool Maze::checkSolution(std::vector<Direction> &soln)
@@ -275,493 +320,100 @@ bool Maze::checkSolution(std::vector<Direction> &soln)
 
 	if( results )
 	{
-		Trace::out2("    checkSolution(%d elements): passed\n",(int)soln.size());
+		printf("    checkSolution(%d elements): passed\n",(int)soln.size());
 	}
 	else
 	{
-		Trace::out2("    checkSolution(%d elements): FAILED!! <<<<-------\n",(int)soln.size());
+		printf("    checkSolution(%d elements): FAILED!! <<<<-------\n",(int)soln.size());
 	}
 
 	return results;
 }
 
-
-void Maze::PruneDeadCellsHeadChunk(int N, bool& exit, CircularData& outQue, CircularData& inQue)
-{
-	int chunk = height / N;
-	int remainder = height % N;
-
-	int rowStart = 0;
-	int rowEnd = chunk + (remainder > 0 ? 1 : 0);
-
-	//std::queue<Position> queBFS;
-	std::vector<Position> stackDFS;
-	stackDFS.reserve(2024);
-
-
-	// Step 1: find all initial degree-1 cells
-	for (int r = rowStart; r < rowEnd; ++r)
-	{
-		for (int c = 0; c < this->width; ++c)
-		{
-			Position pos(r, c);
-
-			if (pos == this->getStart())
-			{
-				continue;
-			}
-
-			ListDirection moves = getMoves(pos);
-			if (moves.size() <= 1)
-			{
-				//queBFS.push(pos);
-				stackDFS.push_back(pos);
-			}
-		}
-	}
-
-	while (!exit)
-	{
-		// Step 2: BFS to mark dead cells
-		while (/*!queBFS.empty()*/!stackDFS.empty())
-		{
-			//Position pos = queBFS.front();
-			//queBFS.pop();
-			Position pos = stackDFS.back();
-			stackDFS.pop_back();
-
-			if (this->isDeadCell(pos))
-			{
-				continue; // already dead
-			}
-			// Mark as dead
-			this->setDead(pos);
-
-			// Check neighbors
-			ListDirection neighborChoices = getMoves(pos);
-
-			Direction dir = neighborChoices.front(); // only one or zero neighbor Choice
-
-			if (Direction::Uninitialized != dir)
-			{
-				Position neighborPos = pos.move(dir);
-
-				// deactivate dead cell
-				switch (dir)
-				{
-				case Direction::North:
-				{
-					this->setSouth(neighborPos);
-					break;
-				}
-				case Direction::South:
-				{
-					this->setSouth(pos);
-					break;
-				}
-				case Direction::East:
-				{
-					this->setEast(pos);
-					break;
-				}
-				case Direction::West:
-				{
-					this->setEast(neighborPos);
-					break;
-				}
-				case Direction::Uninitialized:
-				default:
-					assert(false);
-					break;
-				}
-
-				if (neighborPos == this->getStart())
-				{
-					continue;
-				}
-
-
-				ListDirection neighborMoves = getMoves(neighborPos);
-
-				if (neighborMoves.size() <= 1)
-				{
-					if (neighborPos.row < rowEnd)
-					{
-						//queBFS.push(neighborPos);
-						stackDFS.push_back(neighborPos);
-					}
-					else
-					{
-						outQue.PushBack(neighborPos);
-					}
-				}
-			}
-		}
-
-		// step 3: Mark the dead cells coming from other chunk
-		Position pPos;
-		while (inQue.PopFront(pPos))
-		{
-			//queBFS.push(pPos);
-			stackDFS.push_back(pPos);
-		}
-
-		std::this_thread::yield();
-	}
-
-	//Trace::out("Thread head exit() ======================================= \n");
-}
-
-void Maze::PruneDeadCellsTailChunk(int N, bool& exit, CircularData& outQue, CircularData& inQue)
-{
-	int chunk = height / N;
-	int remainder = height % N;
-
-	int rowStart = (N - 1) * chunk + std::min(N - 1, remainder);
-	int rowEnd = height;
-
-	//std::queue<Position> queBFS;
-	std::vector<Position> stackDFS;
-	stackDFS.reserve(2024);
-
-	// Step 1: find all initial degree-1 cells
-	for (int r = rowStart; r < rowEnd; ++r)
-	{
-		for (int c = 0; c < this->width; ++c)
-		{
-			Position pos(r, c);
-
-			if (pos == this->getEnd())
-			{
-				continue;
-			}
-
-			ListDirection moves = getMoves(pos);
-			if (moves.size() <= 1)
-			{
-				//queBFS.push(pos);
-				stackDFS.push_back(pos);
-			}
-		}
-	}
-
-	while (!exit)
-	{
-		// Step 2: BFS to mark dead cells
-		while (/*!queBFS.empty()*/!stackDFS.empty())
-		{
-			//Position pos = queBFS.front();
-			//queBFS.pop();
-			Position pos = stackDFS.back();
-			stackDFS.pop_back();
-
-			if (this->isDeadCell(pos))
-			{
-				continue; // already dead
-			}
-			// Mark as dead
-			this->setDead(pos);
-
-			// Check neighbors
-			ListDirection neighborChoices = getMoves(pos);
-
-			Direction dir = neighborChoices.front(); // only one or zero neighbor Choice
-
-			if (Direction::Uninitialized != dir)
-			{
-				Position neighborPos = pos.move(dir);
-
-				// deactivate dead cell
-				switch (dir)
-				{
-				case Direction::North:
-				{
-					this->setSouth(neighborPos);
-					break;
-				}
-				case Direction::South:
-				{
-					this->setSouth(pos);
-					break;
-				}
-				case Direction::East:
-				{
-					this->setEast(pos);
-					break;
-				}
-				case Direction::West:
-				{
-					this->setEast(neighborPos);
-					break;
-				}
-				case Direction::Uninitialized:
-				default:
-					assert(false);
-					break;
-				}
-
-				if (neighborPos == this->getEnd())
-				{
-					continue;;
-				}
-
-				ListDirection neighborMoves = getMoves(neighborPos);
-
-				if (neighborMoves.size() <= 1)
-				{
-					if (neighborPos.row < rowStart)
-					{
-						outQue.PushBack(neighborPos);
-					}
-					else
-					{
-						//queBFS.push(neighborPos);
-						stackDFS.push_back(neighborPos);
-					}
-				}
-			}
-		}
-
-		// step 3: Mark the dead cells coming from other chunk
-		Position pPos;
-		while (inQue.PopFront(pPos))
-		{
-			//queBFS.push(pPos);
-			stackDFS.push_back(pPos);
-		}
-
-		std::this_thread::yield();
-	}
-
-
-
-	//Trace::out("Thread tail exit() ======================================= \n");
-}
-
-void Maze::PruneDeadCellsChunk(int N, int thdID, bool& exit)
-{
-	int chunk = height / N;
-	int remainder = height % N;
-
-	int rowStart = thdID * chunk + std::min(thdID, remainder);
-	int rowEnd = (thdID + 1) * chunk + std::min(thdID + 1, remainder);
-
-	while (!exit)
-	{
-		// Pass 1: scan my chunk rows
-		for (int r = rowStart; r < rowEnd; ++r)
-		{
-			for (int c = 0; c < width; ++c)
-			{
-				Position pos(r, c);
-
-				unsigned int cell = getCell(pos);
-
-				if (pos == this->getEnd() || pos == this->getStart())
-				{
-					continue;
-				}
-
-				if (cell & (unsigned int)InternalBit::DEAD_BIT)
-				{
-					continue;
-				}
-
-				ListDirection moves = getMoves(pos);
-
-				if (moves.size() <= 1)
-				{
-					// mark dead
-					cell |= (unsigned int)InternalBit::DEAD_BIT;
-					setCell(pos, cell);
-
-					Direction dir = moves.front();
-
-					if (Direction::Uninitialized != dir)
-					{
-						Position neighborPos = pos.move(dir);
-
-						// deactivate dead cell
-						switch (dir)
-						{
-						case Direction::North:
-						{
-							this->setSouth(neighborPos);
-							break;
-						}
-						case Direction::South:
-						{
-							this->setSouth(pos);
-							break;
-						}
-						case Direction::East:
-						{
-							this->setEast(pos);
-							break;
-						}
-						case Direction::West:
-						{
-							this->setEast(neighborPos);
-							break;
-						}
-						case Direction::Uninitialized:
-						default:
-							assert(false);
-							break;
-						}
-
-					}
-				}
-			}
-		}
-
-		std::this_thread::yield();
-
-	}
-}
-
-
-void Maze::PruneDeadCellsMiddleChunk(int N, int thdID, bool& exit,
-	CircularData& outQueTop, CircularData& outQueBottom, CircularData& inQue)
-{
-	int chunk = height / N;
-	int remainder = height % N;
-
-	int rowStart = thdID * chunk + std::min(thdID, remainder);
-	int rowEnd = (thdID + 1) * chunk + std::min(thdID + 1, remainder);
-
-	//std::queue<Position> queBFS;
-	std::vector<Position> stackDFS;
-	stackDFS.reserve(2024);
-
-	// Step 1: find all initial degree-1 cells
-	for (int r = rowStart; r < rowEnd; ++r)
-	{
-		for (int c = 0; c < this->width; ++c)
-		{
-			Position pos(r, c);
-
-			ListDirection moves = getMoves(pos);
-			if (moves.size() <= 1)
-			{
-				//queBFS.push(pos);
-				stackDFS.push_back(pos);
-			}
-		}
-	}
-
-	while (!exit)
-	{
-		// Step 2: BFS to mark dead cells
-		while (/*!queBFS.empty()*/!stackDFS.empty())
-		{
-			//Position pos = queBFS.front();
-			//queBFS.pop();
-			Position pos = stackDFS.back();
-			stackDFS.pop_back();
-
-			if (this->isDeadCell(pos))
-			{
-				continue; // already dead
-			}
-			// Mark as dead
-			this->setDead(pos);
-
-			// Check neighbors
-			ListDirection neighborChoices = getMoves(pos);
-
-			Direction dir = neighborChoices.front(); // only one or zero neighbor Choice
-
-			if (Direction::Uninitialized != dir)
-			{
-				Position neighborPos = pos.move(dir);
-
-				// deactivate dead cell
-				switch (dir)
-				{
-				case Direction::North:
-				{
-					this->setSouth(neighborPos);
-					break;
-				}
-				case Direction::South:
-				{
-					this->setSouth(pos);
-					break;
-				}
-				case Direction::East:
-				{
-					this->setEast(pos);
-					break;
-				}
-				case Direction::West:
-				{
-					this->setEast(neighborPos);
-					break;
-				}
-				case Direction::Uninitialized:
-				default:
-					assert(false);
-					break;
-				}
-
-				ListDirection neighborMoves = getMoves(neighborPos);
-
-				if (neighborMoves.size() <= 1)
-				{
-					if (neighborPos.row < rowStart)
-					{
-						outQueTop.PushBack(neighborPos);
-					}
-					else if (neighborPos.row >= rowEnd)
-					{
-						outQueBottom.PushBack(neighborPos);
-					}
-					else
-					{
-						//queBFS.push(neighborPos);
-						stackDFS.push_back(neighborPos);
-					}
-				}
-			}
-		}
-
-		// step 3: Mark the dead cells coming from other chunk
-		Position pPos;
-		while (inQue.PopFront(pPos))
-		{
-			//queBFS.push(pPos);
-			stackDFS.push_back(pPos);
-		}
-
-		std::this_thread::yield();
-	}
-
-	//Trace::out("thread %d exit() ======================================= \n", thdID);
-}
-
-
 bool Maze::isDeadCell(Position pos)
 {
-	return (this->poMazeData[pos.row * this->width + pos.col].load() &
+	//return (this->poMazeData[pos.row * this->width + pos.col].load() &
+	//	(unsigned int)InternalBit::DEAD_BIT) != 0;
+	return (this->poMazeData[pos.row * this->width + pos.col].load(std::memory_order_relaxed) &
 		(unsigned int)InternalBit::DEAD_BIT) != 0;
+	//return (this->poMazeData[pos.row * this->width + pos.col].load(std::memory_order_acquire) &
+	//	(unsigned int)InternalBit::DEAD_BIT) != 0;
 }
 
 void Maze::setDead(Position pos)
 {
-	this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::DEAD_BIT);
+	//this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::DEAD_BIT);
+	this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::DEAD_BIT, std::memory_order_relaxed);
+	//this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::DEAD_BIT, std::memory_order_release);
 }
 
 bool Maze::isOverlapCell(Position pos)
 {
-	return (this->poMazeData[pos.row * this->width + pos.col].load() &
+	//return (this->poMazeData[pos.row * this->width + pos.col].load() &
+	//	(unsigned int)InternalBit::OVERLAP_BIT) != 0;
+	return (this->poMazeData[pos.row * this->width + pos.col].load(std::memory_order_relaxed) &
 		(unsigned int)InternalBit::OVERLAP_BIT) != 0;
+	//return (this->poMazeData[pos.row * this->width + pos.col].load(std::memory_order_acquire) &
+	//	(unsigned int)InternalBit::OVERLAP_BIT) != 0;
 }
 
 void Maze::setOverlap(Position pos)
 {
-	this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::OVERLAP_BIT);
+	//this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::OVERLAP_BIT);
+	this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::OVERLAP_BIT, std::memory_order_relaxed);
+	//this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::OVERLAP_BIT, std::memory_order_release);
 }
+
+bool Maze::isBranchOccupied(Position pos)
+{
+	//return (this->poMazeData[pos.row * this->width + pos.col].load() &
+	//	(unsigned int)InternalBit::BRANCH_OCCUPIED_BIT) != 0;
+	return (this->poMazeData[pos.row * this->width + pos.col].load(std::memory_order_relaxed) &
+		(unsigned int)InternalBit::BRANCH_OCCUPIED_BIT) != 0;
+	//return (this->poMazeData[pos.row * this->width + pos.col].load(std::memory_order_acquire) &
+	//	(unsigned int)InternalBit::BRANCH_OCCUPIED_BIT) != 0;
+}
+
+void Maze::setBranchOccupied(Position pos)
+{
+	//this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::BRANCH_OCCUPIED_BIT);
+	this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::BRANCH_OCCUPIED_BIT, std::memory_order_relaxed);
+	//this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::BRANCH_OCCUPIED_BIT, std::memory_order_release);
+}
+
+bool Maze::isBranchDead(Position pos)
+{
+	//return (this->poMazeData[pos.row * this->width + pos.col].load() &
+	//	(unsigned int)InternalBit::BRANCH_DEAD_BIT) != 0;
+	return (this->poMazeData[pos.row * this->width + pos.col].load(std::memory_order_relaxed) &
+		(unsigned int)InternalBit::BRANCH_DEAD_BIT) != 0;
+	//return (this->poMazeData[pos.row * this->width + pos.col].load(std::memory_order_acquire) &
+	//	(unsigned int)InternalBit::BRANCH_DEAD_BIT) != 0;
+}
+
+void Maze::setBranchDead(Position pos)
+{
+	//this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::BRANCH_DEAD_BIT);
+	this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::BRANCH_DEAD_BIT, std::memory_order_relaxed);
+	//this->poMazeData[pos.row * this->width + pos.col].fetch_or((unsigned int)InternalBit::BRANCH_DEAD_BIT, std::memory_order_release);
+}
+
+bool Maze::checkBranchOccupied(Position pos, Direction dir)
+{
+	assert(dir != Direction::Uninitialized);
+
+	Position next = pos.move(dir);
+	return this->isBranchOccupied(next);
+}
+
+bool Maze::checkBranchDead(Position pos, Direction dir)
+{
+	assert(dir != Direction::Uninitialized);
+
+	Position next = pos.move(dir);
+	return this->isBranchDead(next);
+}
+
 
 //--- End of File ------------------------------
 

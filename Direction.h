@@ -1,7 +1,3 @@
-//------------------------------------------------------
-// Copyright 2025, Ed Keenan, all rights reserved.
-//------------------------------------------------------
-
 #ifndef DIRECTION_MAZE_H
 #define DIRECTION_MAZE_H
 
@@ -11,7 +7,7 @@ enum class Direction
 	East, 
 	South, 
 	West,
-	Uninitialized
+	Uninitialized,
 };
 
 Direction reverseDir( Direction dir );

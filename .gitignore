@@ -1,0 +1,111 @@
+# ----------------------------------------------------------------------
+# Visual Studio (IDE)
+# ----------------------------------------------------------------------
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+bin/
+obj/
+
+# IntelliSense / Editor Cache
+.vs/
+*.ipch
+*.apross
+*.lock
+*.v12.suo
+*.v14.suo
+*.v15.suo
+*.v16.suo
+*.v17.suo
+
+# ----------------------------------------------------------------------
+# Visual Studio Code (Editor)
+# ----------------------------------------------------------------------
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# History
+.history/
+
+# ----------------------------------------------------------------------
+# C++ Compiled Files & Linker
+# ----------------------------------------------------------------------
+# Object files
+*.o
+*.obj
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lai
+*.lo
+
+# Shared libraries (DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.exp
+*.pdb
+*.ilk
+
+# ----------------------------------------------------------------------
+# CMake
+# ----------------------------------------------------------------------
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+_deps/
+
+# Standard build folder names for CMake
+build/
+Build/
+out/
+
+# ----------------------------------------------------------------------
+# OS Generated Files
+# ----------------------------------------------------------------------
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Mac
+.DS_Store
+
+# ----------------------------------------------------------------------
+# Project Specific
+# ----------------------------------------------------------------------
+# Ignore the specific executable name from your CMake file
+MazeSolver
+
+# Optional: If you don't want to commit the large maze data files
+# *.data

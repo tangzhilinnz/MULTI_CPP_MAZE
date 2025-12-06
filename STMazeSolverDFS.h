@@ -1,7 +1,3 @@
-//------------------------------------------------------
-// Copyright 2025, Ed Keenan, all rights reserved.
-//------------------------------------------------------
-
 #ifndef ST_Maze_Solver_DFS_H
 #define ST_Maze_Solver_DFS_H
 
@@ -64,8 +60,6 @@ public:
 		}
 		catch (SolutionFoundSkip e) 
 		{
-			AZUL_UNUSED_VAR(e); // unused
-
 			std::vector<Choice>::iterator iter = pChoiceStack.begin();
 			std::vector<Direction> *pFullPath = new std::vector<Direction>();
 			pFullPath->reserve(VECTOR_RESERVE_SIZE);  // Optimized allocations...

@@ -1,7 +1,3 @@
-//------------------------------------------------------
-// Copyright 2025, Ed Keenan, all rights reserved.
-//------------------------------------------------------
-
 #ifndef Skipping_Maze_Solver_H
 #define Skipping_Maze_Solver_H
 
@@ -116,7 +112,6 @@ public:
 		}
 		catch(SolutionFoundSkip e) 
 		{ 
-			AZUL_UNUSED_VAR(e);  // unused
 		}
 	}
 
