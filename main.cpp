@@ -171,13 +171,14 @@ int main(int argc, char *argv[])
 		printf("Results (%s):\n\n",inFileName);
 		printf("   BFS      : %f s\n",ST_BFSTime);
 		printf("   DFS      : %f s\n",ST_DFSTime);
-		printf("   MT_M1      : %f s\n", MT_StudentTime_1);
-		printf("   MT_M2      : %f s\n", MT_StudentTime_2);
+		printf("   MT_M1    : %f s\n", MT_StudentTime_1);
+		printf("   MT_M2    : %f s\n", MT_StudentTime_2);
 
 		printf("\nMaze: end() --------------\n\n");
 
 }
 
 // --- End of File ----
+
 
 
