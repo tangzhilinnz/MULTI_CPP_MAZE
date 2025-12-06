@@ -34,7 +34,7 @@ target_link_libraries(MazeSolver PRIVATE Threads::Threads)
 # 3. INSTANT DATA COPYING (Configuration Time)
 # -----------------------------------------------------------------------------
 # Define the source directory for data
-set(MAZE_DATA_SRC "${CMAKE_CURRENT_SOURCE_DIR}/maze_data")
+set(MAZE_DATA_SRC "${CMAKE_CURRENT_SOURCE_DIR}/Maze_Data")
 
 # 1. Get a list of all files inside the maze_data folder
 file(GLOB DATA_FILES "${MAZE_DATA_SRC}/*")
