@@ -110,7 +110,7 @@ public:
 				at = pChoice.at;
 			} 
 		}
-		catch(SolutionFoundSkip e) 
+		catch(SolutionFoundSkip& e) 
 		{ 
 		}
 	}

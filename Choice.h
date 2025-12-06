@@ -24,16 +24,24 @@ struct ListDirection
 	{
 		int count = 0;
 
-		if( this->south != Direction::Uninitialized )
+		if (this->south != Direction::Uninitialized)
+		{
 			count++;
-		if( this->east != Direction::Uninitialized )
+		}
+		if (this->east != Direction::Uninitialized)
+		{
 			count++;
-		if( this->west != Direction::Uninitialized )
+		}
+		if (this->west != Direction::Uninitialized)
+		{
 			count++;
-		if( this->north != Direction::Uninitialized )
+		}
+		if (this->north != Direction::Uninitialized)
+		{
 			count++;
+		}
 
-			return count;
+		return count;
 	}
 
 	void remove( Direction dir)

@@ -3,6 +3,8 @@
 
 #include <list>
 #include <vector>
+#include <thread>
+#include <chrono>
 
 #include "Maze.h"
 #include "MazeSolver.h"
