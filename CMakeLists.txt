@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(MazeSolver)
 
-# 1. Default to Release mode if the user didn't specify one.
+# 1. Default to Release mode
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -31,29 +31,31 @@ target_include_directories(MazeSolver PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(MazeSolver PRIVATE Threads::Threads)
 
 # -----------------------------------------------------------------------------
-# 3. AUTOMATIC DATA COPYING (FROM maze_data FOLDER)
+# 3. INSTANT DATA COPYING (Configuration Time)
 # -----------------------------------------------------------------------------
-# This looks for the 'maze_data' folder in your project root
-set(MAZE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/maze_data")
+# Define the source directory for data
+set(MAZE_DATA_SRC "${CMAKE_CURRENT_SOURCE_DIR}/maze_data")
 
-# Scans for ALL files inside maze_data
-file(GLOB DATA_FILES "${MAZE_DATA_DIR}/*")
+# 1. Get a list of all files inside the maze_data folder
+file(GLOB DATA_FILES "${MAZE_DATA_SRC}/*")
 
-# Adds a post-build step to copy these files to the executable's folder
-foreach(DATA_FILE ${DATA_FILES})
-    add_custom_command(TARGET MazeSolver POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${DATA_FILE}"
-            "$<TARGET_FILE_DIR:MazeSolver>"
-        COMMENT "Copying data file from maze_data/ to build directory..."
-    )
-endforeach()
+# 2. Check if we actually found files (optional warning)
+list(LENGTH DATA_FILES NUM_FILES)
+if(NUM_FILES EQUAL 0)
+    message(WARNING "No files found in ${MAZE_DATA_SRC}. The solver might fail at runtime.")
+else()
+    message(STATUS "Found ${NUM_FILES} maze data files. Copying to build directory...")
+endif()
+
+# 3. Copy them immediately to the build folder
+# This happens right now, when you run 'cmake'
+file(COPY ${DATA_FILES} DESTINATION "${CMAKE_BINARY_DIR}")
 
 # -----------------------------------------------------------------------------
 # 4. OPTIMIZATIONS
 # -----------------------------------------------------------------------------
 
-# Check if the compiler supports Interprocedural Optimization (LTO/IPO).
+# Check for Interprocedural Optimization (LTO/IPO).
 include(CheckIPOSupported)
 check_ipo_supported(RESULT result OUTPUT output)
 if(result)
@@ -74,7 +76,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     )
 endif()
 
-# Visual Studio (MSVC) flags if you ever run this back on Windows
+# Visual Studio (MSVC) flags
 if(MSVC)
     target_compile_options(MazeSolver PRIVATE
         $<$<CONFIG:Release>:/Ox>    # Max optimization
