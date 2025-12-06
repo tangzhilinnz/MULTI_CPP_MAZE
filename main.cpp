@@ -68,7 +68,8 @@ int main(int argc, char *argv[])
 	// Create timers 
 	PerformanceTimer ST_DFS_Timer;
 	PerformanceTimer ST_BFS_Timer;
-	PerformanceTimer MT_Student_Timer;
+	PerformanceTimer MT_Student_Timer_1;
+	PerformanceTimer MT_Student_Timer_2;
 	 
 	// Create a maze
 	Maze *pMaze;
@@ -118,38 +119,61 @@ int main(int argc, char *argv[])
 		delete pMaze;
 
 	// -- Multi-Threaded Student Solver ----------------------------------------------
-	printf("\n Maze: MTStudentSolver\n");
+	printf("\n Maze: MTStudentSolver_1\n");
 
 		// Create and load Maze - Data is atomic_int
 		pMaze = new Maze();
 		pMaze->Load(inFileName);
 
 		// Solve it
-		MT_Student_Timer.Tic(); 
+		MT_Student_Timer_1.Tic(); 
 
-			MTMazeStudentSolver mtStudentSolver(pMaze);
-			std::vector<Direction> *pSolutionStudent = mtStudentSolver.Solve();
+			MTMazeStudentSolver mtStudentSolverA(pMaze);
+			std::vector<Direction> *pSolutionStudentA = mtStudentSolverA.Solve_1();
 		
-		MT_Student_Timer.Toc();
+		MT_Student_Timer_1.Toc();
 
 		// Verify solution - do not delete, it is not timed
-		pMaze->checkSolution( *pSolutionStudent );
+		pMaze->checkSolution( *pSolutionStudentA );
 
 		// release memory
-		delete pSolutionStudent;
+		delete pSolutionStudentA;
+		delete pMaze;
+
+	printf("\n Maze: MTStudentSolver_2\n");
+
+		// Create and load Maze - Data is atomic_int
+		pMaze = new Maze();
+		pMaze->Load(inFileName);
+
+		// Solve it
+		MT_Student_Timer_2.Tic();
+
+		MTMazeStudentSolver mtStudentSolverB(pMaze);
+		std::vector<Direction>* pSolutionStudentB = mtStudentSolverB.Solve_2();
+
+		MT_Student_Timer_2.Toc();
+
+		// Verify solution - do not delete, it is not timed
+		pMaze->checkSolution(*pSolutionStudentB);
+
+		// release memory
+		delete pSolutionStudentB;
 		delete pMaze;
 
 	// Stats --------------------------------------------------------------------------
 
 		double ST_DFSTime = ST_DFS_Timer.TimeInSeconds();
 		double ST_BFSTime = ST_BFS_Timer.TimeInSeconds();
-		double MT_StudentTime = MT_Student_Timer.TimeInSeconds();
+		double MT_StudentTime_1 = MT_Student_Timer_1.TimeInSeconds();
+		double MT_StudentTime_2 = MT_Student_Timer_2.TimeInSeconds();
 
 		printf("\n");
 		printf("Results (%s):\n\n",inFileName);
 		printf("   BFS      : %f s\n",ST_BFSTime);
 		printf("   DFS      : %f s\n",ST_DFSTime);
-		printf("   Student  : %f s\n",MT_StudentTime);
+		printf("   Student  : %f s\n", MT_StudentTime_1);
+		printf("   Student  : %f s\n", MT_StudentTime_2);
 
 		printf("\nMaze: end() --------------\n\n");
 

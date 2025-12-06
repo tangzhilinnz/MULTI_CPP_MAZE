@@ -10,11 +10,13 @@
 #include "MazeSolver.h"
 #include "Direction.h"
 
+const int threadNum = 20;
+
 // Feel free to change your class any way you see fit
 // It needs to inherit at some point from the MazeSolver
 class MTMazeStudentSolver : public MazeSolver 
 {
-public: 
+public:
 	MTMazeStudentSolver(Maze *maze) 
 	: MazeSolver( maze )
 	{
@@ -1056,6 +1058,20 @@ public:
 
 		//this->StartParallelPruning_Method1(24, pTB);
 		this->StartParallelDFSWalking_Method2(10, 10, pTB);
+		return pTB;
+	}
+
+	std::vector<Direction>* Solve_1()
+	{
+		std::vector<Direction>* pTB = new std::vector<Direction>();
+		this->StartParallelPruning_Method1(threadNum, pTB);
+		return pTB;
+	}
+
+	std::vector<Direction>* Solve_2()
+	{
+		std::vector<Direction>* pTB = new std::vector<Direction>();
+		this->StartParallelDFSWalking_Method2(threadNum/2, threadNum/2, pTB);
 		return pTB;
 	}
 };
