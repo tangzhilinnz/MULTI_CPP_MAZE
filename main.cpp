@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
 	printf("--MAIN--\n");
 
 #if !FINAL_SUBMIT
-	char inFileName[INPUT_NAME_SIZE] = "Maze15Kx15K.data";
+	char inFileName[INPUT_NAME_SIZE] = "Maze5Kx5K.data";
 	(void)argv;
 #else
 	char inFileName[INPUT_NAME_SIZE];

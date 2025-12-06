@@ -58,7 +58,7 @@ public:
 			// No solution found.
 			return 0;
 		}
-		catch (SolutionFoundSkip e) 
+		catch (SolutionFoundSkip& e) 
 		{
 			std::vector<Choice>::iterator iter = pChoiceStack.begin();
 			std::vector<Direction> *pFullPath = new std::vector<Direction>();

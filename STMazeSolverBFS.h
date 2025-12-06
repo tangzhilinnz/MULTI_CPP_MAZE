@@ -9,6 +9,7 @@
 #include <list>
 #include <vector>
 #include <queue>
+#include <algorithm>
 
 #include "Direction.h"
 #include "Choice.h"
