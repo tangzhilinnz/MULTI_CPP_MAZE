@@ -2,6 +2,7 @@
 #define POSITION_MAZE_H
 
 #include "Direction.h"
+#include "assert.h"
 
 class Position 
 {

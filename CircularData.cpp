@@ -4,6 +4,8 @@
 
 #include "CircularData.h"
 #include <assert.h>
+#include <cstdio>
+#include <cstring>
 
 bool CircularData::IsEmpty()
 {
