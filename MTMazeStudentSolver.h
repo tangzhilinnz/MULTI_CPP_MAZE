@@ -5,9 +5,6 @@
 #include <vector>
 #include <thread>
 #include <chrono>
-#include <pthread.h>
-#include <sched.h>
-#include <unistd.h>
 
 
 #include "Maze.h"
@@ -195,14 +192,6 @@ public:
 
 	void walkThread_DFS_TB(int threadID, std::vector<Direction>*& pTB, Position& posOverlap, std::atomic<bool>& foundSolution)
 	{
-
-                //cpu_set_t cpuset;
-                //CPU_ZERO(&cpuset);
-                //CPU_SET(threadID, &cpuset);
-
-	        // Bind this std::thread to a specific core
-	        //pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-
 		std::vector<Junction> pJunctionStack;
 		pJunctionStack.reserve(VECTOR_RESERVE_SIZE);
 
@@ -280,13 +269,6 @@ public:
 
 	void walkThread_DFS_BT(int threadID, std::vector<Junction>& pBTStack, Position& posOverlap, std::atomic<bool>& foundSolution, std::atomic<bool>& foundOverlap)
 	{
-		//cpu_set_t cpuset;
-		//CPU_ZERO(&cpuset);
-		//CPU_SET(threadID, &cpuset);
-
-		// Bind this std::thread to a specific core
-                //pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-
 		std::vector<Junction> pJunctionStack;
 		pJunctionStack.reserve(VECTOR_RESERVE_SIZE);
 
@@ -874,12 +856,6 @@ public:
 
 	void PruneDeadCellsMiddleChunk(int N, int thdID, bool& exit, CircularData& outQueTop, CircularData& outQueBottom, CircularData& inQue)
 	{  
-	        //cpu_set_t cpuset;
-  	        //CPU_ZERO(&cpuset);
-  	        //CPU_SET(thdID, &cpuset);
-
-		// Bind this std::thread to a specific core  							
-	        //pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 		int chunk = pMaze->height / N;
  		int remainder = pMaze->height % N;
 
@@ -1053,6 +1029,8 @@ public:
 		{
 			threads.emplace_back(&MTMazeStudentSolver::walkThread_DFS_TB, this,
 				i, std::ref(pTB), std::ref(posOverlap), std::ref(foundSolution));
+
+			std::this_thread::sleep_for(std::chrono::microseconds(1));
 		}
 
 		// 3. Launch Bottom-Top (BT) Threads
@@ -1062,6 +1040,8 @@ public:
 		{
 			threads.emplace_back(&MTMazeStudentSolver::walkThread_DFS_BT, this,
 				i + TBN, std::ref(pBTStack), std::ref(posOverlap), std::ref(foundSolution), std::ref(foundOverlap));
+
+			std::this_thread::sleep_for(std::chrono::microseconds(1));
 		}
 
 		// 4. Wait for completion
