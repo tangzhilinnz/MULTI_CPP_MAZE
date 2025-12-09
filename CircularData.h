@@ -73,7 +73,6 @@
 #include "Position.h"
 #include <atomic>
 #include <cstddef>
-#include <new>
 
 class CircularData
 {
@@ -107,8 +106,11 @@ private:
     Position data[CIRCULAR_DATA_SIZE];
 
     // Align to 64 bytes (typical cache line size) to prevent False Sharing
-    alignas(std::hardware_destructive_interference_size) std::atomic<unsigned int> head;
-    alignas(std::hardware_destructive_interference_size) std::atomic<unsigned int> tail;
+    // between the Producer thread (modifies head) and Consumer thread (modifies tail).
+    alignas(64) std::atomic<unsigned int> head; // Write Index (Back)
+    char pad1[60];
+    alignas(64) std::atomic<unsigned int> tail; // Read Index (Front)
+    char pad2[60];
 };
 
 #endif
