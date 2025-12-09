@@ -1030,7 +1030,7 @@ public:
 			threads.emplace_back(&MTMazeStudentSolver::walkThread_DFS_TB, this,
 				i, std::ref(pTB), std::ref(posOverlap), std::ref(foundSolution));
 
-			std::this_thread::sleep_for(std::chrono::microseconds(1));
+			//std::this_thread::sleep_for(std::chrono::microseconds(1));
 		}
 
 		// 3. Launch Bottom-Top (BT) Threads
@@ -1041,7 +1041,7 @@ public:
 			threads.emplace_back(&MTMazeStudentSolver::walkThread_DFS_BT, this,
 				i + TBN, std::ref(pBTStack), std::ref(posOverlap), std::ref(foundSolution), std::ref(foundOverlap));
 
-			std::this_thread::sleep_for(std::chrono::microseconds(1));
+			//std::this_thread::sleep_for(std::chrono::microseconds(1));
 		}
 
 		// 4. Wait for completion
