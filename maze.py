@@ -19,7 +19,7 @@ class Direction(Enum):
 class InternalBit(Enum):
     EAST_BIT = 1
     SOUTH_BIT = 2
-    VISITED_BIT = 4    
+    VISITED_BIT = 4     
     PATH_BIT = 8        
     
     PARENT_NORTH = 16
@@ -47,6 +47,9 @@ class InternalBit(Enum):
     
     # Dead State (Dark Gray) - ONLY for True Junctions
     DEAD_JUNCTION_BIT = 0x400000 
+    
+    # MT_M1 Specific
+    PRUNED_BIT = 0x800000
 
 # ==========================================
 # 2. HELPER CLASSES
@@ -189,6 +192,7 @@ class Maze:
                  InternalBit.PATH_BIT.value | 
                  InternalBit.PARENT_MASK.value |
                  InternalBit.ON_STACK_BIT.value |
+                 InternalBit.PRUNED_BIT.value |
                  0xFFFF000 ) 
         for i in range(len(self.poMazeData)):
             self.poMazeData[i] &= mask
@@ -309,7 +313,9 @@ class Maze:
     def unmarkVisitedTeam(self, pos: Position):
         self._clearFlag(pos, InternalBit.VISITED_TB.value)
         self._clearFlag(pos, InternalBit.VISITED_BT.value)
-        self._setFlag(pos, InternalBit.VISITED_BIT.value) 
+        
+        # === FIX: ALSO CLEAR THE GENERIC VISITED BIT TO REMOVE GREY TRAIL ===
+        self._clearFlag(pos, InternalBit.VISITED_BIT.value)
 
     def isVisitedByTeam(self, pos: Position, is_tb: bool):
         if is_tb: return self._hasFlag(pos, InternalBit.VISITED_TB.value)
@@ -320,6 +326,22 @@ class Maze:
     
     def getThreadOwner(self, pos: Position):
         return self.thread_ownership.get(self._cellIndex(pos), -1)
+        
+    # --- MT_M1 Helper ---
+    def markPruned(self, pos: Position):
+        self._setFlag(pos, InternalBit.PRUNED_BIT.value)
+        
+    def isPruned(self, pos: Position):
+        return self._hasFlag(pos, InternalBit.PRUNED_BIT.value)
+
+    def getAvailableMovesNoPruned(self, pos: Position):
+        moves = []
+        for d in [Direction.North, Direction.South, Direction.East, Direction.West]:
+            if self.canMove(pos, d):
+                n_pos = pos.move(d)
+                if not self.isPruned(n_pos):
+                    moves.append(d)
+        return moves
 
 
 # --- Ported Logic ---
@@ -502,6 +524,10 @@ class DFSSolver:
                     if not has_opts:
                         p, _ = stack.pop()
                         self.maze.markOnStack(p, False)
+                        
+                        # === FIX: CLEAR GREY TRAIL ===
+                        self.maze._clearFlag(p, InternalBit.VISITED_BIT.value)
+                        
                         if self.maze.isJunction(p):
                             self.maze.markDeadJunction(p)
 
@@ -519,7 +545,7 @@ class DFSSolver:
             yield "NO_SOLUTION"
 
 
-# --- MULTI-THREADED LOGIC ---
+# --- MULTI-THREADED LOGIC (M2) ---
 
 class DFSThread:
     def __init__(self, threadID, is_tb, start_pos, maze):
@@ -592,10 +618,10 @@ class DFSThread:
             collision_found = False
             if self.is_tb:
                  if next_p == self.maze.getEnd() or self.maze.isVisitedByTeam(next_p, False):
-                     collision_found = True
+                      collision_found = True
             else:
                  if self.maze.isVisitedByTeam(next_p, True):
-                     collision_found = True
+                      collision_found = True
             
             if collision_found:
                 # Do NOT setThreadOwner here. Leave the existing owner (the other team) 
@@ -696,10 +722,10 @@ class MTSolver:
             # Safety: Ensure we are on a TB cell or neighbor
             if not self.maze.isVisitedByTeam(curr_tb, True):
                  for d in [Direction.North, Direction.East, Direction.South, Direction.West]:
-                     n = curr_tb.move(d)
-                     if self.maze.isVisitedByTeam(n, True): 
-                         curr_tb = n
-                         break
+                      n = curr_tb.move(d)
+                      if self.maze.isVisitedByTeam(n, True): 
+                          curr_tb = n
+                          break
             
             temp = curr_tb
             while temp != start:
@@ -798,16 +824,292 @@ class MTSolver:
             yield "NO_SOLUTION"
 
 # ==========================================
-# 6. MAIN
+# 6. MT_M1 SOLVER
+# ==========================================
+
+class PruneThread:
+    def __init__(self, tid, maze, row_start, row_end, in_q, out_qs):
+        self.id = tid
+        self.maze = maze
+        self.row_start = row_start
+        self.row_end = row_end
+        self.in_q = in_q
+        self.out_qs = out_qs # List of output queues [Top, Bottom] or just neighbors
+        self.stack = []
+        self.phase = 'SCAN'
+        self.iter_row = row_start
+        self.iter_col = 0
+        self.finished = False
+
+    def step(self):
+        if self.finished: return
+
+        # 1. SCAN PHASE
+        if self.phase == 'SCAN':
+            # Scan a chunk of cells per frame to avoid lag, but here we do it incrementally
+            # To visualize slowly, we do one row or a few cells per step.
+            # Let's do one row per step to be visible
+            for _ in range(self.maze.width):
+                if self.iter_col >= self.maze.width:
+                    self.iter_col = 0
+                    self.iter_row += 1
+                
+                if self.iter_row >= self.row_end:
+                    self.phase = 'PRUNE'
+                    return
+
+                pos = Position(self.iter_row, self.iter_col)
+                # Skip Start/End
+                if pos == self.maze.getStart() or pos == self.maze.getEnd():
+                    self.iter_col += 1
+                    continue
+
+                moves = self.maze.getAvailableMovesNoPruned(pos)
+                if len(moves) <= 1:
+                    self.stack.append(pos)
+                
+                self.iter_col += 1
+
+        # 2. PRUNE PHASE
+        elif self.phase == 'PRUNE':
+            
+            # Process incoming queue from neighbors
+            while self.in_q:
+                p_pos = self.in_q.popleft()
+                self.stack.append(p_pos)
+
+            if not self.stack:
+                # No work, but keep alive waiting for neighbors
+                return 
+
+            # Process stack (do a few per frame)
+            # C++ logic: while (!stackDFS.empty())
+            processed_count = 0
+            # === MODIFICATION HERE: Change 5 to 1 for gradual single-step effect ===
+            while self.stack and processed_count < 1: 
+                pos = self.stack.pop()
+                processed_count += 1
+
+                if self.maze.isPruned(pos): continue
+                
+                self.maze.markPruned(pos)
+                self.maze.setThreadOwner(pos, self.id) # For coloring
+
+                # Get moves ignoring currently pruned cells
+                moves = self.maze.getAvailableMovesNoPruned(pos)
+                
+                if len(moves) == 1:
+                    d = moves[0]
+                    neighbor = pos.move(d)
+
+                    if neighbor == self.maze.getStart() or neighbor == self.maze.getEnd():
+                        continue
+
+                    n_moves = self.maze.getAvailableMovesNoPruned(neighbor)
+                    
+                    # Logic says: if neighbors moves <= 1 (after pruning current), it becomes dead
+                    # In our case, getAvailableMovesNoPruned(neighbor) sees 'pos' as NOT pruned yet 
+                    # because we just marked it? No, we marked it above.
+                    # So n_moves does NOT include 'pos'.
+                    # So if n_moves <= 1, neighbor is dead.
+                    
+                    if len(n_moves) <= 1:
+                        # Check boundary
+                        if neighbor.row < self.row_start:
+                            # Send to Top Neighbor
+                            if self.out_qs[0] is not None: self.out_qs[0].append(neighbor)
+                        elif neighbor.row >= self.row_end:
+                            # Send to Bottom Neighbor
+                            if self.out_qs[1] is not None: self.out_qs[1].append(neighbor)
+                        else:
+                            self.stack.append(neighbor)
+
+class WalkThreadTB:
+    def __init__(self, maze, solve_list):
+        self.maze = maze
+        self.solve_list = solve_list # Shared list to store result
+        self.curr = maze.getStart()
+        self.came_from = Direction.Uninitialized
+        self.finished = False
+        self.found = False
+        self.overlap = None
+
+    def step(self, first_exit_ref):
+        if self.finished: return
+
+        target = self.maze.getEnd()
+        
+        # Check if BT thread reached here or we are overlapping
+        if self.maze.getDirectionRouteBT(self.curr) != Direction.Uninitialized:
+            self.overlap = self.curr
+            self.finished = True
+            return
+
+        if self.curr == target:
+            self.found = True
+            first_exit_ref[0] = True
+            self.finished = True
+            return
+
+        moves = self.maze.getAvailableMovesNoPruned(self.curr)
+        
+        # Remove came_from
+        if self.came_from != Direction.Uninitialized:
+            if self.came_from in moves:
+                moves.remove(self.came_from)
+        
+        go_to = Direction.Uninitialized
+        
+        if len(moves) == 1:
+            go_to = moves[0]
+            self.solve_list.append(go_to)
+            self.curr = self.curr.move(go_to)
+            self.overlap = self.curr
+            self.came_from = reverseDir(go_to)
+            
+            # Visual marker
+            self.maze.markVisitedTeam(self.curr, True) 
+            
+        elif len(moves) > 1:
+            # Wait for pruning to reduce choices
+            return 
+        elif len(moves) == 0:
+            # Dead end (shouldn't happen if pruning is correct)
+            self.finished = True
+
+class BFSThreadBT:
+    def __init__(self, maze):
+        self.maze = maze
+        self.q = deque([maze.getEnd()])
+        self.maze.setDirectionRouteBT(maze.getEnd(), Direction.Uninitialized)
+        self.finished = False
+        self.found = False
+
+    def step(self, first_exit_ref):
+        if self.finished or first_exit_ref[0]: 
+            self.finished = True
+            return
+
+        end_node = self.maze.getStart()
+        
+        # Process a few nodes per frame
+        steps = 0
+        while self.q and steps < 2:
+            steps += 1
+            cur = self.q.popleft()
+
+            if self.maze.isPruned(cur): continue
+
+            if cur == end_node:
+                first_exit_ref[0] = True
+                self.found = True
+                self.finished = True
+                return
+
+            came_from = self.maze.getDirectionRouteBT(cur)
+
+            for d in [Direction.South, Direction.West, Direction.East, Direction.North]:
+                # C++ Logic: "if came_from != d && canMove(d)"
+                # But d here is the direction TO neighbor. came_from is direction TO parent.
+                # Actually C++ says: if (came_from != Direction::South && pMaze->canMove(cur, Direction::South))
+                # meaning if we didn't come FROM south (parent is south), we can go south.
+                
+                # Check valid move
+                if self.maze.canMove(cur, d):
+                    nextPos = cur.move(d)
+                    
+                    if self.maze.isPruned(nextPos): continue
+
+                    if self.maze.getDirectionRouteBT(nextPos) == Direction.Uninitialized:
+                        # Mark parent
+                        parent = reverseDir(d)
+                        self.maze.setDirectionRouteBT(nextPos, parent)
+                        self.q.append(nextPos)
+                        
+                        # Visual
+                        self.maze.markVisitedTeam(nextPos, False)
+
+class MT_M1_Solver:
+    def __init__(self, maze: Maze):
+        self.maze = maze
+        self.pruners = []
+        self.walker = None
+        self.bfs = None
+        self.solve_list = []
+        self.first_exit = [False] # Reference wrapper
+        
+        # Setup Pruners
+        N = 4
+        chunk = maze.height // N
+        remainder = maze.height % N
+        
+        queues = [deque() for _ in range(N)] # In-queues for each thread
+        
+        for i in range(N):
+            row_start = i * chunk + min(i, remainder)
+            row_end = (i + 1) * chunk + min(i + 1, remainder)
+            
+            # Neighbors queues: [Top, Bottom]
+            out_qs = [None, None]
+            if i > 0: out_qs[0] = queues[i-1]
+            if i < N-1: out_qs[1] = queues[i+1]
+            
+            self.pruners.append(PruneThread(i, maze, row_start, row_end, queues[i], out_qs))
+            
+        self.walker = WalkThreadTB(maze, self.solve_list)
+        self.bfs = BFSThreadBT(maze)
+
+    def solve_step_by_step(self):
+        
+        # Main Loop: Runs as long as solution isn't found and searchers are active
+        while not self.first_exit[0] and (not self.walker.finished or not self.bfs.finished):
+            
+            # 1. Step Pruners (Concurrent)
+            for p in self.pruners:
+                p.step()
+            
+            # 2. Step Walker (Concurrent)
+            self.walker.step(self.first_exit)
+            
+            # 3. Step BFS (Concurrent)
+            self.bfs.step(self.first_exit)
+            
+            if self.walker.finished and self.walker.overlap:
+                 break
+                 
+            yield "SEARCHING"
+
+        # Reconstruction
+        # 1. TB Path part
+        curr = self.maze.getStart()
+        # Draw TB part
+        for d in self.solve_list:
+            self.maze.markPath(curr)
+            curr = curr.move(d)
+            yield "BACKTRACKING"
+        
+        # Draw remaining from Overlap to End using BT hints
+        while curr != self.maze.getEnd():
+            self.maze.markPath(curr)
+            d = self.maze.getDirectionRouteBT(curr)
+            if d == Direction.Uninitialized: break
+            curr = curr.move(d)
+            yield "BACKTRACKING"
+            
+        self.maze.markPath(self.maze.getEnd())
+        yield "FINISHED"
+
+# ==========================================
+# 7. MAIN
 # ==========================================
 
 def main():
-    MAZE_FILE = "Maze_Data/Maze100x100.data"
+    MAZE_FILE = "Maze_Data/Maze50x50.data"
     file_name = os.path.basename(MAZE_FILE)
     
     # --- CONFIG ---
-    CELL_W = 18 
-    CELL_H = 8 
+    CELL_W = 21
+    CELL_H = 16 
     WALL_THICKNESS = 2
     FPS = 60
     CONTROL_PANEL_WIDTH = 250 
@@ -816,7 +1118,7 @@ def main():
     COLOR_WALL = (0, 0, 0)
     
     # Updated: Deep Taupe
-    COLOR_DEAD = (70, 63, 58)
+    COLOR_DEAD = (183, 183, 164)
     
     COLOR_VISITED = (220, 220, 220) 
     COLOR_BFS_VISITED = (255, 215, 120) 
@@ -825,15 +1127,24 @@ def main():
     COLOR_PATH = (0, 100, 0)        
     
     COLOR_DFS_PATH = (100, 149, 237) 
-    COLOR_JUNCTION = (255, 185, 0)     
+    COLOR_JUNCTION = (255, 185, 0)       
     
+    # MT_M2 Thread Colors
     THREAD_COLORS = {
         0: (255, 120, 120), 
-        1: (220, 60, 60),   
-        2: (180, 0, 0),     
+        1: (220, 60, 60),    
+        2: (180, 0, 0),      
         3: (120, 200, 255), 
         4: (60, 140, 220),  
         5: (0, 0, 180)      
+    }
+
+    # MT_M1 Pruning Colors (Darker shades for pruned areas)
+    PRUNE_COLORS = {
+        0: (255, 192, 198),   # Light Pink
+        1: (240, 164, 144),   # Light Yellow
+        2: (147, 238, 147),   # Light Green
+        3: (173, 200, 230)    # Light Blue
     }
 
     COLOR_TEXT_NORMAL = (50, 50, 50) 
@@ -858,7 +1169,7 @@ def main():
     
     clock = pygame.time.Clock()
     font = pygame.font.SysFont('Arial', 18)
-    font_cell = pygame.font.SysFont('Arial', 8)
+    font_cell = pygame.font.SysFont('Arial', 10, bold=True) # Slightly larger/bold for visibility
 
     app_state = {
         'algorithm': 'BFS', 
@@ -875,9 +1186,14 @@ def main():
             app_state['solver'] = DFSSolver(maze)
         elif app_state['algorithm'] == 'MT_M2':
             app_state['solver'] = MTSolver(maze)
+        elif app_state['algorithm'] == 'MT_M1':
+            app_state['solver'] = MT_M1_Solver(maze)
             
         app_state['generator'] = app_state['solver'].solve_step_by_step()
         app_state['state'] = "RUNNING"
+        
+        # Update Title
+        pygame.display.set_caption(f"Maze Solver - {file_name} [{app_state['algorithm']}]")
 
     init_solver()
 
@@ -886,6 +1202,7 @@ def main():
         btn_bfs.is_active = True
         btn_dfs.is_active = False
         btn_mt.is_active = False
+        btn_mt1.is_active = False
         init_solver()
 
     def set_dfs():
@@ -893,6 +1210,7 @@ def main():
         btn_bfs.is_active = False
         btn_dfs.is_active = True
         btn_mt.is_active = False
+        btn_mt1.is_active = False
         init_solver()
         
     def set_mt():
@@ -900,6 +1218,15 @@ def main():
         btn_bfs.is_active = False
         btn_dfs.is_active = False
         btn_mt.is_active = True
+        btn_mt1.is_active = False
+        init_solver()
+    
+    def set_mt1():
+        app_state['algorithm'] = 'MT_M1'
+        btn_bfs.is_active = False
+        btn_dfs.is_active = False
+        btn_mt.is_active = False
+        btn_mt1.is_active = True
         init_solver()
 
     def restart():
@@ -912,7 +1239,11 @@ def main():
     btn_bfs = SimpleButton(panel_start_x, 150, 65, 30, "BFS", set_bfs, color=(100, 100, 200))
     btn_dfs = SimpleButton(panel_start_x + 70, 150, 65, 30, "DFS", set_dfs, color=(100, 100, 200))
     btn_mt  = SimpleButton(panel_start_x + 140, 150, 65, 30, "MT_M2", set_mt, color=(100, 100, 200))
-    btn_restart = SimpleButton(panel_start_x + 50, 200, 100, 30, "Restart", restart)
+    
+    # New MT_M1 Button (Right Side Toggle)
+    btn_mt1 = SimpleButton(panel_start_x + 140, 190, 65, 30, "MT_M1", set_mt1, color=(100, 150, 150))
+    
+    btn_restart = SimpleButton(panel_start_x + 50, 240, 100, 30, "Restart", restart)
 
     btn_bfs.is_active = True
 
@@ -929,6 +1260,7 @@ def main():
             btn_bfs.handle_event(event)
             btn_dfs.handle_event(event)
             btn_mt.handle_event(event)
+            btn_mt1.handle_event(event)
             btn_restart.handle_event(event)
 
         val = int(slider.get_value())
@@ -971,42 +1303,96 @@ def main():
                 is_visited = (val & InternalBit.VISITED_BIT.value)
                 on_stack = (val & InternalBit.ON_STACK_BIT.value)
                 is_dead_junction = (val & InternalBit.DEAD_JUNCTION_BIT.value)
+                is_pruned = (val & InternalBit.PRUNED_BIT.value)
                 
                 # 1. Final Path (Highest Priority)
                 if is_path:
                     pygame.draw.rect(screen, COLOR_PATH, rect)
+
+                # 2. MT_M1 Pruned Cells (Second Highest - Overrides Junctions)
+                elif app_state['algorithm'] == 'MT_M1' and is_pruned:
+                    tid = maze.getThreadOwner(pos)
+                    t_color = PRUNE_COLORS.get(tid, COLOR_DEAD)
+                    pygame.draw.rect(screen, t_color, rect)
+                    
+                    # --- UPDATED: Show Thread Num instead of face ---
+                    if tid != -1:
+                        txt_surf = font_cell.render(str(tid), True, (50, 50, 50))
+                        txt_rect = txt_surf.get_rect(center=(x + CELL_W//2, y + CELL_H//2))
+                        screen.blit(txt_surf, txt_rect)
                 
-                # 2. Dead Junctions (Dark Gray)
+                # 3. Dead Junctions (Dark Gray)
                 elif is_dead_junction:
                     pygame.draw.rect(screen, COLOR_DEAD, rect)
                 
-                # 3. Orange Junctions (Persistent Active)
+                # 4. Orange Junctions (Persistent Active)
                 elif maze.isJunction(pos) and (is_visited or on_stack or (val & (InternalBit.VISITED_TB.value | InternalBit.VISITED_BT.value))):
                     pygame.draw.rect(screen, COLOR_JUNCTION, rect)
                 
-                # 4. MT Rendering (Thread Colors)
+                # 5. MT_M1 Remaining Rendering (Walker, BFS)
+                elif app_state['algorithm'] == 'MT_M1':
+                    # Pruned cells already handled above
+                    if (val & InternalBit.VISITED_TB.value):
+                          # Walker TB
+                          pygame.draw.rect(screen, (50, 205, 50), rect) # Lime Green
+                    elif (val & InternalBit.VISITED_BT.value): # Actually re-using VISITED_BT bit for BFS BT
+                          # BFS BT
+                          pygame.draw.rect(screen, (255, 215, 0), rect) # Gold
+                    elif (val & InternalBit.VISITED_BIT.value):
+                          pygame.draw.rect(screen, COLOR_VISITED, rect)
+
+                # 6. MT_M2 Rendering (Thread Colors)
                 elif app_state['algorithm'] == 'MT_M2':
+                    tid = maze.getThreadOwner(pos)
+                    
+                    # A. Draw Background Colors (Rect Only)
                     if (val & InternalBit.VISITED_TB.value) or (val & InternalBit.VISITED_BT.value):
-                        tid = maze.getThreadOwner(pos)
                         t_color = THREAD_COLORS.get(tid, (150, 150, 150))
                         pygame.draw.rect(screen, t_color, rect)
                     elif (val & InternalBit.VISITED_BIT.value):
                         pygame.draw.rect(screen, COLOR_VISITED, rect)
                             
-                # 5. DFS Rendering
+                # 7. DFS Rendering
                 elif app_state['algorithm'] == 'DFS':
                     if on_stack:
                         pygame.draw.rect(screen, COLOR_DFS_PATH, rect)
                     elif is_visited:
                         pygame.draw.rect(screen, COLOR_VISITED, rect)
 
-                # 6. BFS Rendering
+                # 8. BFS Rendering
                 elif is_visited:
                     color = COLOR_BFS_VISITED if app_state['algorithm'] == 'BFS' else COLOR_VISITED
                     pygame.draw.rect(screen, color, rect)
                 
-                # Order Numbers (ONLY if NOT MT_M2)
-                if app_state['algorithm'] != 'MT_M2':
+                # --- MT_M2 Thread Number Overlay (Correctly placed AFTER background Rects) ---
+                if app_state['algorithm'] == 'MT_M2':
+                    tid = maze.getThreadOwner(pos)
+                    if tid != -1:
+                        # Determine text color based on background
+                        txt_color = (0, 0, 0)
+                        
+                        # 1. Path (Green)
+                        if is_path:
+                            txt_color = (255, 255, 255)
+                        # 2. Dead Junction (Dark Gray)
+                        elif is_dead_junction:
+                            txt_color = (255, 255, 255)
+                        # 3. Active Junction (Orange)
+                        elif maze.isJunction(pos) and (is_visited or on_stack or (val & (InternalBit.VISITED_TB.value | InternalBit.VISITED_BT.value))):
+                            # Orange background (255, 185, 0) -> Black text
+                            txt_color = (0, 0, 0) 
+                        # 4. Standard Visited (Thread Color)
+                        else:
+                            # Use White for Darker threads (2, 5)
+                            if tid in [2, 5]: 
+                                txt_color = (255, 255, 255)
+
+                        txt_surf = font_cell.render(str(tid), True, txt_color)
+                        txt_rect = txt_surf.get_rect(center=(x + CELL_W//2, y + CELL_H//2))
+                        screen.blit(txt_surf, txt_rect)
+                
+                # Order Numbers (ONLY if NOT MT)
+                if app_state['algorithm'] not in ['MT_M2', 'MT_M1']:
                     order = maze.getVisitOrder(pos)
                     if order != -1:
                         is_dark_bg = is_path or (on_stack and app_state['algorithm'] == 'DFS') or is_dead_junction
@@ -1026,6 +1412,25 @@ def main():
                 if (val & InternalBit.SOUTH_BIT.value):
                     pygame.draw.line(screen, COLOR_WALL, (x, y+CELL_H), (x+CELL_W, y+CELL_H), WALL_THICKNESS)
 
+        # === 9. Start & End Arrows ===
+        start_pos = maze.getStart()
+        end_pos = maze.getEnd()
+        
+        # Helper to draw simple arrow
+        def draw_map_arrow(pos, color):
+            x, y = pos.col * CELL_W, pos.row * CELL_H
+            # Points for a downward triangle arrow
+            points = [
+                (x + 3, y + 3),
+                (x + CELL_W - 3, y + 3),
+                (x + CELL_W // 2, y + CELL_H - 3)
+            ]
+            pygame.draw.polygon(screen, color, points)
+            pygame.draw.polygon(screen, (0, 0, 0), points, 1) # Outline
+
+        draw_map_arrow(start_pos, (0, 255, 0)) # Green Arrow for Start
+        draw_map_arrow(end_pos, (255, 0, 0))   # Red Arrow for End
+
         # Control Panel
         pygame.draw.rect(screen, (230, 230, 230), (maze_w_px, 0, CONTROL_PANEL_WIDTH, screen_h))
         pygame.draw.line(screen, (100, 100, 100), (maze_w_px, 0), (maze_w_px, screen_h), 2)
@@ -1040,6 +1445,7 @@ def main():
         btn_bfs.draw(screen)
         btn_dfs.draw(screen)
         btn_mt.draw(screen)
+        btn_mt1.draw(screen)
         btn_restart.draw(screen)
         
         # === LEGEND RENDERER (Updated) ===
@@ -1058,6 +1464,16 @@ def main():
             
             # Add separation
             legend_items.append(None) 
+        
+        elif app_state['algorithm'] == 'MT_M1':
+            title = font.render("Pruning Legend:", True, (0, 0, 0))
+            screen.blit(title, (panel_start_x, legend_y))
+            legend_y += 30
+            for tid, color in PRUNE_COLORS.items():
+                legend_items.append((color, f"Pruner Chunk {tid}"))
+            legend_items.append(None)
+            legend_items.append(((50, 205, 50), "TB Walker"))
+            legend_items.append(((255, 215, 0), "BT BFS Search"))
             
         elif app_state['algorithm'] == 'DFS':
             # DFS Mode: Stack First
@@ -1068,7 +1484,7 @@ def main():
             legend_items.append(None)
 
         # 2. Add Common Junction Items (Active & Dead)
-        if app_state['algorithm'] in ['MT_M2', 'DFS']:
+        if app_state['algorithm'] in ['MT_M2', 'DFS', 'MT_M1']:
             legend_items.append((COLOR_JUNCTION, "Active Junc"))
             legend_items.append((COLOR_DEAD, "Dead Junc"))
             # Also show final path color
