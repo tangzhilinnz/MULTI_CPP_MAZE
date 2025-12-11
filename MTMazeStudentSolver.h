@@ -1180,8 +1180,8 @@ public:
 		
 		std::thread walkReverse(&MTMazeStudentSolver::walkThread_BFS_BT, this, std::ref(exit), std::ref(firstExit));
 
-		//this->walkThreadTB(pTB, exit, firstExit);
-		this->walkThread_BFS_TB(pTB, exit, firstExit);
+		this->walkThreadTB(pTB, exit, firstExit);
+		//this->walkThread_BFS_TB(pTB, exit, firstExit);
 
 		headThread.join();
 		tailThread.join();
@@ -1210,8 +1210,6 @@ public:
 		{
 			threads.emplace_back(&MTMazeStudentSolver::walkThread_DFS_TB, this,
 				i, std::ref(pTB), std::ref(posOverlap), std::ref(foundSolution));
-
-			//std::this_thread::sleep_for(std::chrono::microseconds(1));
 		}
 
 		// 3. Launch Bottom-Top (BT) Threads
@@ -1221,8 +1219,6 @@ public:
 		{
 			threads.emplace_back(&MTMazeStudentSolver::walkThread_DFS_BT, this,
 				i + TBN, std::ref(pBTStack), std::ref(posOverlap), std::ref(foundSolution), std::ref(foundOverlap));
-
-			//std::this_thread::sleep_for(std::chrono::microseconds(1));
 		}
 
 		// 4. Wait for completion
@@ -1250,7 +1246,7 @@ public:
 	std::vector<Direction>* Solve_1()
 	{
 		std::vector<Direction>* pTB = new std::vector<Direction>();
-		this->StartParallelPruning_Method1(180, pTB);
+		this->StartParallelPruning_Method1(168, pTB);
 		return pTB;
 	}
 
