@@ -8,25 +8,25 @@ To fully exploit the hardware capabilities of the i9-14900KF, all algorithms wer
 
 2️⃣ 𝗔𝗹𝗴𝗼𝗿𝗶𝘁𝗵𝗺𝘀
 
-𝘚𝘪𝘯𝘨𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥 𝘉𝘍𝘚 (𝘉𝘳𝘦𝘢𝘥𝘵𝘩-𝘍𝘪𝘳𝘴𝘵 𝘚𝘦𝘢𝘳𝘤𝘩) 📏:
+<b>𝘚𝘪𝘯𝘨𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥 𝘉𝘍𝘚 (𝘉𝘳𝘦𝘢𝘥𝘵𝘩-𝘍𝘪𝘳𝘴𝘵 𝘚𝘦𝘢𝘳𝘤𝘩)</b> 📏<b>:</b>
 
   • 𝗠𝗲𝗰𝗵𝗮𝗻𝗶𝘀𝗺: Explores the maze layer-by-layer using a queue. Guarantees the shortest path (in unweighted graphs) but requires massive memory and processing for deep mazes.
   
   • 𝗣𝗿𝗼𝘀/𝗖𝗼𝗻𝘀: Simple to implement, but suffers from exponential search space expansion in large mazes.
 
-𝘚𝘪𝘯𝘨𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥 𝘋𝘍𝘚 (𝘋𝘦𝘱𝘵𝘩-𝘍𝘪𝘳𝘴𝘵 𝘚𝘦𝘢𝘳𝘤𝘩) 🗂:
+<b>𝘚𝘪𝘯𝘨𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥 𝘋𝘍𝘚 (𝘋𝘦𝘱𝘵𝘩-𝘍𝘪𝘳𝘴𝘵 𝘚𝘦𝘢𝘳𝘤𝘩)</b> 🗂<b>:</b>
 
   • 𝗠𝗲𝗰𝗵𝗮𝗻𝗶𝘀𝗺: Explores the maze layer-by-layer using a queue. Guarantees the shortest path (in unweighted graphs) but requires massive memory and processing for deep mazes.
   
   • 𝗣𝗿𝗼𝘀/𝗖𝗼𝗻𝘀: Memory efficient and often faster than BFS on single-solution mazes, but can get "lucky" 🍀 or "unlucky" 💀 depending on branch ordering.
 
-𝘔𝘶𝘭𝘵𝘪𝘱𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥𝘴 𝘔𝘦𝘵𝘩𝘰𝘥 1 (𝘗𝘢𝘳𝘢𝘭𝘭𝘦𝘭 𝘗𝘳𝘶𝘯𝘪𝘯𝘨 + 𝘉𝘪𝘥𝘪𝘳𝘦𝘤𝘵𝘪𝘰𝘯𝘢𝘭) ✂️:
+<b>𝘔𝘶𝘭𝘵𝘪𝘱𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥𝘴 𝘔𝘦𝘵𝘩𝘰𝘥 1 (𝘗𝘢𝘳𝘢𝘭𝘭𝘦𝘭 𝘗𝘳𝘶𝘯𝘪𝘯𝘨 + 𝘉𝘪𝘥𝘪𝘳𝘦𝘤𝘵𝘪𝘰𝘯𝘢𝘭)</b> ✂️<b>:</b>
 
   • 𝗠𝗲𝗰𝗵𝗮𝗻𝗶𝘀𝗺: Uses a concurrent "Prune and Pursue" strategy. Dedicated threads seal dead-ends, while a Bottom-to-Top (BT) thread executes a pruning-compatible BFS. Simultaneously, the Top-to-Bottom (TB) thread simply advances along the path carved by the pruning threads.
   
   • 𝗢𝗽𝘁𝗶𝗺𝗶𝘇𝗮𝘁𝗶𝗼𝗻: Efficiency is maximized by partitioning the maze into distinct sections, enabling interference-free parallel pruning. This dynamic reduction actively shrinks the search space in real-time, preventing the BT thread from wasting cycles on dead-ends and paving a clear path for the TB thread.
 
-𝘔𝘶𝘭𝘵𝘪𝘱𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥𝘴 𝘔𝘦𝘵𝘩𝘰𝘥 2 (𝘊𝘰𝘭𝘭𝘢𝘣𝘰𝘳𝘢𝘵𝘪𝘷𝘦 𝘉𝘪𝘥𝘪𝘳𝘦𝘤𝘵𝘪𝘰𝘯𝘢𝘭 𝘋𝘍𝘚) 🔄:
+<b>𝘔𝘶𝘭𝘵𝘪𝘱𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥𝘴 𝘔𝘦𝘵𝘩𝘰𝘥 2 (𝘊𝘰𝘭𝘭𝘢𝘣𝘰𝘳𝘢𝘵𝘪𝘷𝘦 𝘉𝘪𝘥𝘪𝘳𝘦𝘤𝘵𝘪𝘰𝘯𝘢𝘭 𝘋𝘍𝘚)</b> 🔄<b>:</b>
 
   • 𝗠𝗲𝗰𝗵𝗮𝗻𝗶𝘀𝗺: Launches multiple threads split into two groups: one searching Top-to-Bottom (TB) and one Bottom-to-Top (BT).
   
