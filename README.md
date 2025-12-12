@@ -37,7 +37,9 @@ To fully exploit the hardware capabilities of the i9-14900KF, all algorithms wer
 4️⃣  𝗔𝗻𝗮𝗹𝘆𝘀𝗶𝘀
 
   • 𝗠𝗧 𝗠𝗲𝘁𝗵𝗼𝗱 𝟭 (𝗖𝗼𝗻𝗰𝘂𝗿𝗿𝗲𝗻𝘁 𝗣𝗿𝘂𝗻𝗶𝗻𝗴) dominates on Server Hardware. It effectively exploits massive thread counts (180+) on low-frequency CPUs (AMD EPYC) to mass-delete dead ends, scaling linearly to achieve 0.26s (approx. 2.5x faster than Intel).
+  
   • 𝗠𝗧 𝗠𝗲𝘁𝗵𝗼𝗱 𝟮 (𝗖𝗼𝗹𝗹𝗮𝗯𝗼𝗿𝗮𝘁𝗶𝘃𝗲 𝗔𝘀𝘆𝗺𝗺𝗲𝘁𝗿𝗶𝗰 𝗧𝗿𝗮𝘃𝗲𝗿𝘀𝗮𝗹 𝗗𝗙𝗦) excels on High-Frequency Workstations by leveraging the Intel i9's clock speed. However, it also demonstrates strong scalability on high-core systems, improving to 0.30s on AMD (vs 0.36s on Intel), proving that its dynamic, differentiated thread roles benefit significantly from increased core density.
+  
 𝗩𝗲𝗿𝗱𝗶𝗰𝘁:
 Method 1 is the top choice for massive parallel throughput (Servers).
 Method 2 offers a versatile balance, making it ideal for Workstations while remaining highly competitive and scalable on Server platforms.
@@ -48,11 +50,5 @@ Method 2 offers a versatile balance, making it ideal for Workstations while rema
  https://tangzhilinnz.github.io/maze_visualization/
 
 ---------------------
-
-💡 If your team is looking for someone who masters parallel C++ algorithms, high-performance computing, and complex problem-solving, I’d love to connect and explore opportunities!
-
-
-
-#C++ #CPlusPlus #Multithreading #Concurrency #HighPerformanceComputing #Algorithms #DataStructures #SystemsProgramming #SoftwareEngineering #SideProject #Demo #JobSeeking #LookingForOpportunities #CareerGrowth #PerformanceOptimization #ParallelProgramming #Multicore
 
 
