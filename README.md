@@ -11,28 +11,30 @@ To fully exploit the hardware capabilities of the i9-14900KF, all algorithms wer
 𝘚𝘪𝘯𝘨𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥 𝘉𝘍𝘚 (𝘉𝘳𝘦𝘢𝘥𝘵𝘩-𝘍𝘪𝘳𝘴𝘵 𝘚𝘦𝘢𝘳𝘤𝘩) 📏:
 
   • 𝗠𝗲𝗰𝗵𝗮𝗻𝗶𝘀𝗺: Explores the maze layer-by-layer using a queue. Guarantees the shortest path (in unweighted graphs) but requires massive memory and processing for deep mazes.
+  
   • 𝗣𝗿𝗼𝘀/𝗖𝗼𝗻𝘀: Simple to implement, but suffers from exponential search space expansion in large mazes.
 
 𝘚𝘪𝘯𝘨𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥 𝘋𝘍𝘚 (𝘋𝘦𝘱𝘵𝘩-𝘍𝘪𝘳𝘴𝘵 𝘚𝘦𝘢𝘳𝘤𝘩) 🗂:
 
   • 𝗠𝗲𝗰𝗵𝗮𝗻𝗶𝘀𝗺: Explores the maze layer-by-layer using a queue. Guarantees the shortest path (in unweighted graphs) but requires massive memory and processing for deep mazes.
+  
   • 𝗣𝗿𝗼𝘀/𝗖𝗼𝗻𝘀: Memory efficient and often faster than BFS on single-solution mazes, but can get "lucky" 🍀 or "unlucky" 💀 depending on branch ordering.
 
 𝘔𝘶𝘭𝘵𝘪𝘱𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥𝘴 𝘔𝘦𝘵𝘩𝘰𝘥 1 (𝘗𝘢𝘳𝘢𝘭𝘭𝘦𝘭 𝘗𝘳𝘶𝘯𝘪𝘯𝘨 + 𝘉𝘪𝘥𝘪𝘳𝘦𝘤𝘵𝘪𝘰𝘯𝘢𝘭) ✂️:
 
   • 𝗠𝗲𝗰𝗵𝗮𝗻𝗶𝘀𝗺: Uses a concurrent "Prune and Pursue" strategy. Dedicated threads seal dead-ends, while a Bottom-to-Top (BT) thread executes a pruning-compatible BFS. Simultaneously, the Top-to-Bottom (TB) thread simply advances along the path carved by the pruning threads.
+  
   • 𝗢𝗽𝘁𝗶𝗺𝗶𝘇𝗮𝘁𝗶𝗼𝗻: Efficiency is maximized by partitioning the maze into distinct sections, enabling interference-free parallel pruning. This dynamic reduction actively shrinks the search space in real-time, preventing the BT thread from wasting cycles on dead-ends and paving a clear path for the TB thread.
 
 𝘔𝘶𝘭𝘵𝘪𝘱𝘭𝘦 𝘛𝘩𝘳𝘦𝘢𝘥𝘴 𝘔𝘦𝘵𝘩𝘰𝘥 2 (𝘊𝘰𝘭𝘭𝘢𝘣𝘰𝘳𝘢𝘵𝘪𝘷𝘦 𝘉𝘪𝘥𝘪𝘳𝘦𝘤𝘵𝘪𝘰𝘯𝘢𝘭 𝘋𝘍𝘚) 🔄:
 
   • 𝗠𝗲𝗰𝗵𝗮𝗻𝗶𝘀𝗺: Launches multiple threads split into two groups: one searching Top-to-Bottom (TB) and one Bottom-to-Top (BT).
+  
   • 𝗢𝗽𝘁𝗶𝗺𝗶𝘇𝗮𝘁𝗶𝗼𝗻: Threads share a global "visited" state. When a thread enters a branch, it marks it "Occupied" 🚧 to prevent redundant work. Dead-ends are marked "Dead" 💀 globally, permanently pruning the search for all other threads. The search concludes when a TB thread overlaps with a BT thread.
 
 3️⃣ 𝗣𝗲𝗿𝗳𝗼𝗿𝗺𝗮𝗻𝗰𝗲
 
-![Maze](https://github.com/user-attachments/assets/fa8af537-828c-4b64-878a-ed131d6cb63f)
-
-
+<img width="642" height="805" alt="image" src="https://github.com/user-attachments/assets/c1c2a4eb-0b5f-4760-a296-002884abb140" />
 
 4️⃣  𝗔𝗻𝗮𝗹𝘆𝘀𝗶𝘀
 
@@ -50,5 +52,7 @@ Method 2 offers a versatile balance, making it ideal for Workstations while rema
  https://tangzhilinnz.github.io/maze_visualization/
 
 ---------------------
+
+![Maze](https://github.com/user-attachments/assets/fa8af537-828c-4b64-878a-ed131d6cb63f)
 
 
