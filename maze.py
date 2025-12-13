@@ -19,7 +19,7 @@ class Direction(Enum):
 class InternalBit(Enum):
     EAST_BIT = 1
     SOUTH_BIT = 2
-    VISITED_BIT = 4     
+    VISITED_BIT = 4      
     PATH_BIT = 8        
     
     PARENT_NORTH = 16
@@ -710,8 +710,6 @@ class MTSolver:
             if active_threads == 0 and not found:
                 break
         
-        
-
         if found and collision_pos:
             # === PATH RECONSTRUCTION ===
             
@@ -739,85 +737,123 @@ class MTSolver:
                 self.maze.markPath(p)
                 yield "BACKTRACKING"
 
-            # --- PART 2: BOTTOM-TOP (Stack Based) ---
+            # --- PART 2: BOTTOM-TOP (Segment-Based Reconstruction) ---
             
-            # 1. Identify the BT Thread that owns the collision area
+            # 1. Identify the BT Thread
             bt_thread = None
-            bt_start_curr = collision_pos
             
             # Try to find owner at collision or neighbors
-            potential_positions = [collision_pos]
+            check_list = [collision_pos]
             for d in [Direction.North, Direction.East, Direction.South, Direction.West]:
-                potential_positions.append(collision_pos.move(d))
+                check_list.append(collision_pos.move(d))
             
-            for pos in potential_positions:
+            for pos in check_list:
                 if self.maze.isVisitedByTeam(pos, False):
                     tid = self.maze.getThreadOwner(pos)
                     if tid >= 3:
                         bt_thread = self.threads[tid]
-                        bt_start_curr = pos
                         break
             
             if bt_thread and bt_thread.stack:
-                # We have the thread. Now we reconstruct using its STACK.
-                # Logic: Walk from 'bt_start_curr' to 'End'.
+                # 2. Sync with Stack
+                # We expect the collision point to be the tip of the stack (or very close)
+                # because the thread pushes a dummy junction upon collision.
+                stack_idx = len(bt_thread.stack) - 1
                 
-                curr = bt_start_curr
+                # Verify and adjust if needed
+                if bt_thread.stack[stack_idx].at != collision_pos:
+                    # Search for the collision point in the stack
+                    for i in range(len(bt_thread.stack) - 1, -1, -1):
+                        if bt_thread.stack[i].at == collision_pos:
+                            stack_idx = i
+                            break
                 
-                # --- FIXED: SEARCH FOR CORRECT STACK INDEX ---
-                # We cannot assume stack[-1] is our location. We must search for 'curr'.
-                stack_idx = -1
-                for i in range(len(bt_thread.stack)):
-                    if bt_thread.stack[i].at == curr:
-                        stack_idx = i
-                        break
+                curr = bt_thread.stack[stack_idx].at
                 
-                # If not found (e.g. collision on a corridor cell, not a junction),
-                # we must find the closest future junction in the stack.
-                # However, for simplicity in corridors, we rely on the nearest *past* stack node
-                # to determine direction, but we are moving towards END.
-                # The stack grows End -> Collision. So 'past' index means closer to collision.
-                # If we are in a corridor, the stack tip (or near it) should be our guide.
+                # 3. Walk Segment by Segment
+                # We iterate backwards from the Tip (Collision) down to the Root (End)
+                # i corresponds to the 'Current Junction'. i-1 is the 'Goal Junction'.
                 
-                if stack_idx == -1:
-                    # Fallback: Start from the top of the stack (nearest to collision)
-                    stack_idx = len(bt_thread.stack) - 1
-                
-                came_from_dir = Direction.Uninitialized
-                
-                while curr != end:
+                while stack_idx > 0:
+                    node_curr = bt_thread.stack[stack_idx]
+                    node_goal = bt_thread.stack[stack_idx - 1]
+                    
+                    # A. Mark current node
                     self.maze.markPath(curr)
                     yield "BACKTRACKING"
                     
-                    go_to = Direction.Uninitialized
+                    # B. Take the first step (The Jump)
+                    # came_from points BACK towards the parent (node_goal)
+                    jump_dir = node_curr.came_from
+                    curr = curr.move(jump_dir)
                     
-                    # A. Check Stack Synchronization
-                    # If our current position is the node recorded in the stack:
-                    if stack_idx >= 0 and curr == bt_thread.stack[stack_idx].at:
-                        # Follow the instruction recorded in history
-                        go_to = bt_thread.stack[stack_idx].came_from
-                        stack_idx -= 1
-                    
-                    # B. Corridor Logic
-                    else:
-                        branches = Branches(self.maze, curr, 0)
-                        if came_from_dir != Direction.Uninitialized:
-                            branches.remove(came_from_dir)
+                    # C. Walk the Corridor
+                    # Keep moving until we hit the goal node
+                    while curr != node_goal.at:
+                        self.maze.markPath(curr)
+                        yield "BACKTRACKING"
                         
-                        if branches.size() == 1:
-                            go_to = branches.getNext()
-                        else:
-                            # Fallback/Error state
+                        found_next = False
+                        
+                        # Look for neighbors that are:
+                        # 1. Visited by this specific thread
+                        # 2. NOT the one we just came from (reverseDir of jump/last move)
+                        # 3. Valid moves (Walls)
+                        
+                        # Note: We need to track where we came from to avoid bouncing back.
+                        # Since 'jump_dir' brought us here, reverseDir(jump_dir) is "back".
+                        # We update 'jump_dir' as we move.
+                        
+                        back_dir = reverseDir(jump_dir)
+                        
+                        # Priority Check: Are we next to the goal?
+                        for d in [Direction.North, Direction.East, Direction.South, Direction.West]:
+                             if curr.move(d) == node_goal.at:
+                                 jump_dir = d
+                                 curr = curr.move(d)
+                                 found_next = True
+                                 break
+                        
+                        if found_next: continue
+
+                        # Regular Step
+                        for d in [Direction.North, Direction.East, Direction.South, Direction.West]:
+                            if d == back_dir: continue
+                            if not self.maze.canMove(curr, d): continue
+                            
+                            n = curr.move(d)
+                            # Strict Owner Check
+                            if self.maze.getThreadOwner(n) == bt_thread.id and self.maze.isVisitedByTeam(n, False):
+                                jump_dir = d
+                                curr = n
+                                found_next = True
+                                break
+                        
+                        if not found_next:
+                             # Fallback for rare race conditions: Allow any BT visited cell
+                             for d in [Direction.North, Direction.East, Direction.South, Direction.West]:
+                                if d == back_dir: continue
+                                if not self.maze.canMove(curr, d): continue
+                                n = curr.move(d)
+                                if self.maze.isVisitedByTeam(n, False):
+                                    jump_dir = d
+                                    curr = n
+                                    found_next = True
+                                    break
+                                    
+                        if not found_next:
+                            print("Error: Lost in corridor reconstruction.")
                             break
 
-                    if go_to == Direction.Uninitialized: break
-                    
-                    curr = curr.move(go_to)
-                    came_from_dir = reverseDir(go_to)
+                    # Loop finished (curr == node_goal.at). 
+                    # Prepare for next segment.
+                    stack_idx -= 1
                 
+                # Mark the final node (The Maze End)
                 self.maze.markPath(end)
+
             else:
-                print("Error: Could not find valid BT Thread stack for reconstruction.")
+                print("Error: Could not find valid BT Thread stack.")
 
             yield "FINISHED"
         else:
@@ -1104,32 +1140,28 @@ class MT_M1_Solver:
 # ==========================================
 
 def main():
-    MAZE_FILE = "Maze_Data/Maze50x50.data"
-    file_name = os.path.basename(MAZE_FILE)
-    
     # --- CONFIG ---
-    CELL_W = 21
-    CELL_H = 16 
+    # Fixed Viewport based on 50x50 maze with 22x16 cell size
+    # Updated: 1155 (5% wider than 1100)
+    VIEWPORT_W = 1155
+    VIEWPORT_H = 800
+    CONTROL_PANEL_WIDTH = 250 
+
     WALL_THICKNESS = 2
     FPS = 60
-    CONTROL_PANEL_WIDTH = 250 
 
     COLOR_BG = (255, 255, 255)
     COLOR_WALL = (0, 0, 0)
     
-    # Updated: Deep Taupe
     COLOR_DEAD = (183, 183, 164)
-    
     COLOR_VISITED = (220, 220, 220) 
     COLOR_BFS_VISITED = (255, 215, 120) 
 
-    # Updated: Electric Lime
     COLOR_PATH = (0, 100, 0)        
     
     COLOR_DFS_PATH = (100, 149, 237) 
-    COLOR_JUNCTION = (255, 185, 0)       
+    COLOR_JUNCTION = (255, 185, 0)        
     
-    # MT_M2 Thread Colors
     THREAD_COLORS = {
         0: (255, 120, 120), 
         1: (220, 60, 60),    
@@ -1139,43 +1171,46 @@ def main():
         5: (0, 0, 180)      
     }
 
-    # MT_M1 Pruning Colors (Darker shades for pruned areas)
     PRUNE_COLORS = {
-        0: (255, 192, 198),   # Light Pink
-        1: (240, 164, 144),   # Light Yellow
-        2: (147, 238, 147),   # Light Green
-        3: (173, 200, 230)    # Light Blue
+        0: (255, 192, 198), 
+        1: (240, 164, 144), 
+        2: (147, 238, 147), 
+        3: (173, 200, 230)  
     }
 
     COLOR_TEXT_NORMAL = (50, 50, 50) 
     COLOR_TEXT_WHITE = (255, 255, 255)
     
-    maze = Maze()
-    try:
-        maze.Load(MAZE_FILE)
-    except FileNotFoundError:
-        print(f"Error: File {MAZE_FILE} not found.")
-        return
+    # Maze Configs
+    MAZE_CONFIGS = {
+        "20x20": "Maze_Data/Maze20x20.data",
+        "50x50": "Maze_Data/Maze50x50.data",
+        "100x100": "Maze_Data/Maze100x100.data",
+        "200x200": "Maze_Data/Maze200x200.data"
+    }
 
     pygame.init()
     
-    maze_w_px = maze.width * CELL_W
-    maze_h_px = maze.height * CELL_H
-    screen_w = maze_w_px + CONTROL_PANEL_WIDTH
-    screen_h = maze_h_px
+    screen_w = VIEWPORT_W + CONTROL_PANEL_WIDTH
+    screen_h = VIEWPORT_H
     screen = pygame.display.set_mode((screen_w, screen_h))
-    
-    pygame.display.set_caption(f"Maze Solver - {file_name}")
     
     clock = pygame.time.Clock()
     font = pygame.font.SysFont('Arial', 18)
-    font_cell = pygame.font.SysFont('Arial', 10, bold=True) # Slightly larger/bold for visibility
+    font_cell = pygame.font.SysFont('Arial', 10, bold=True) 
+
+    maze = Maze()
 
     app_state = {
         'algorithm': 'BFS', 
         'generator': None,
         'state': "RUNNING",
-        'solver': None
+        'solver': None,
+        'current_maze_key': '50x50',
+        'cell_w': 22, 
+        'cell_h': 16,
+        'wall_thickness': 2, # Default
+        'inset': 2           # Default
     }
 
     def init_solver():
@@ -1192,11 +1227,43 @@ def main():
         app_state['generator'] = app_state['solver'].solve_step_by_step()
         app_state['state'] = "RUNNING"
         
-        # Update Title
+        file_name = os.path.basename(MAZE_CONFIGS[app_state['current_maze_key']])
         pygame.display.set_caption(f"Maze Solver - {file_name} [{app_state['algorithm']}]")
 
-    init_solver()
+    def load_maze(key):
+        filename = MAZE_CONFIGS.get(key)
+        if not filename: return
+        
+        try:
+            maze.Load(filename)
+            app_state['current_maze_key'] = key
+            
+            # Recalculate cell size to fit fixed viewport
+            app_state['cell_w'] = VIEWPORT_W / maze.width
+            app_state['cell_h'] = VIEWPORT_H / maze.height
+            
+            # === NEW: Dynamic Visual Settings based on Maze Size ===
+            # For very large mazes (200+), remove inset to avoid dots and set wall thin
+            if maze.width >= 200:
+                app_state['wall_thickness'] = 1
+                app_state['inset'] = 0  # Fill the whole cell
+            # For large mazes (100-199), minimal inset
+            elif maze.width >= 100:
+                app_state['wall_thickness'] = 1
+                app_state['inset'] = 1
+            # For small mazes, standard look
+            else:
+                app_state['wall_thickness'] = 2
+                app_state['inset'] = 2
+            
+            init_solver()
+        except FileNotFoundError:
+            print(f"Error: File {filename} not found.")
 
+    # Initial Load
+    load_maze('50x50')
+
+    # Algorithm Callbacks
     def set_bfs():
         app_state['algorithm'] = 'BFS'
         btn_bfs.is_active = True
@@ -1232,18 +1299,32 @@ def main():
     def restart():
         init_solver()
 
+    # Maze Size Callbacks
+    def set_size_20(): load_maze("20x20")
+    def set_size_50(): load_maze("50x50")
+    def set_size_100(): load_maze("100x100")
+    def set_size_200(): load_maze("200x200")
+
     # UI setup
-    panel_start_x = maze_w_px + 20
-    slider = SimpleSlider(panel_start_x, 80, 200, 20, -10, 20, 0)
+    panel_start_x = VIEWPORT_W + 20
     
-    btn_bfs = SimpleButton(panel_start_x, 150, 65, 30, "BFS", set_bfs, color=(100, 100, 200))
-    btn_dfs = SimpleButton(panel_start_x + 70, 150, 65, 30, "DFS", set_dfs, color=(100, 100, 200))
-    btn_mt  = SimpleButton(panel_start_x + 140, 150, 65, 30, "MT_M2", set_mt, color=(100, 100, 200))
+    # 1. Size Selection Buttons
+    btn_sz_20 = SimpleButton(panel_start_x, 20, 65, 30, "20x20", set_size_20, color=(150, 150, 150))
+    btn_sz_50 = SimpleButton(panel_start_x + 70, 20, 65, 30, "50x50", set_size_50, color=(150, 150, 150))
+    btn_sz_100 = SimpleButton(panel_start_x, 60, 65, 30, "100x100", set_size_100, color=(150, 150, 150))
+    btn_sz_200 = SimpleButton(panel_start_x + 70, 60, 65, 30, "200x200", set_size_200, color=(150, 150, 150))
+
+    # 2. Slider
+    slider = SimpleSlider(panel_start_x, 120, 200, 20, -10, 20, 0)
     
-    # New MT_M1 Button (Right Side Toggle)
-    btn_mt1 = SimpleButton(panel_start_x + 140, 190, 65, 30, "MT_M1", set_mt1, color=(100, 150, 150))
+    # 3. Algorithm Buttons
+    btn_bfs = SimpleButton(panel_start_x, 180, 65, 30, "BFS", set_bfs, color=(100, 100, 200))
+    btn_dfs = SimpleButton(panel_start_x + 70, 180, 65, 30, "DFS", set_dfs, color=(100, 100, 200))
+    btn_mt  = SimpleButton(panel_start_x + 140, 180, 65, 30, "MT_M2", set_mt, color=(100, 100, 200))
+    btn_mt1 = SimpleButton(panel_start_x + 140, 220, 65, 30, "MT_M1", set_mt1, color=(100, 150, 150))
     
-    btn_restart = SimpleButton(panel_start_x + 50, 240, 100, 30, "Restart", restart)
+    # 4. Restart
+    btn_restart = SimpleButton(panel_start_x + 50, 270, 100, 30, "Restart", restart)
 
     btn_bfs.is_active = True
 
@@ -1262,6 +1343,12 @@ def main():
             btn_mt.handle_event(event)
             btn_mt1.handle_event(event)
             btn_restart.handle_event(event)
+            
+            # Size buttons
+            btn_sz_20.handle_event(event)
+            btn_sz_50.handle_event(event)
+            btn_sz_100.handle_event(event)
+            btn_sz_200.handle_event(event)
 
         val = int(slider.get_value())
         current_gen = app_state['generator']
@@ -1287,17 +1374,39 @@ def main():
                         app_state['state'] = "FINISHED"
                         break
 
-        # --- DRAWING ---
+        # --- DRAWING BACKGROUNDS (RECTS) ---
         screen.fill(COLOR_BG)
+        
+        # Pre-calculate render steps (float)
+        step_x = VIEWPORT_W / maze.width
+        step_y = VIEWPORT_H / maze.height
+        
+        # Get Dynamic Visual Props
+        inset = app_state['inset']
+        wt = app_state['wall_thickness']
+        
+        # Flag to hide text for large mazes
+        show_text = (maze.width < 100)
 
         for r in range(maze.height):
+            # Calculate dynamic Y and Height
+            y = int(r * step_y)
+            h = int((r + 1) * step_y) - y
+            
             for c in range(maze.width):
+                # Calculate dynamic X and Width
+                x = int(c * step_x)
+                w = int((c + 1) * step_x) - x
+                
                 pos = Position(r, c)
                 val = maze.getCell(pos)
                 if val == 0: continue
                 
-                x, y = c * CELL_W, r * CELL_H
-                rect = (x, y, CELL_W, CELL_H)
+                # --- NEW: Dynamic Inset ---
+                # Ensure width/height doesn't go negative or zero
+                fw = max(1, w - 2 * inset)
+                fh = max(1, h - 2 * inset)
+                fill_rect = (x + inset, y + inset, fw, fh)
                 
                 is_path = (val & InternalBit.PATH_BIT.value)
                 is_visited = (val & InternalBit.VISITED_BIT.value)
@@ -1305,141 +1414,162 @@ def main():
                 is_dead_junction = (val & InternalBit.DEAD_JUNCTION_BIT.value)
                 is_pruned = (val & InternalBit.PRUNED_BIT.value)
                 
+                # --- LAYER 1: Background Colors ---
+                
                 # 1. Final Path (Highest Priority)
                 if is_path:
-                    pygame.draw.rect(screen, COLOR_PATH, rect)
+                    pygame.draw.rect(screen, COLOR_PATH, fill_rect)
 
-                # 2. MT_M1 Pruned Cells (Second Highest - Overrides Junctions)
+                # 2. MT_M1 Pruned Cells
                 elif app_state['algorithm'] == 'MT_M1' and is_pruned:
                     tid = maze.getThreadOwner(pos)
                     t_color = PRUNE_COLORS.get(tid, COLOR_DEAD)
-                    pygame.draw.rect(screen, t_color, rect)
-                    
-                    # --- UPDATED: Show Thread Num instead of face ---
-                    if tid != -1:
-                        txt_surf = font_cell.render(str(tid), True, (50, 50, 50))
-                        txt_rect = txt_surf.get_rect(center=(x + CELL_W//2, y + CELL_H//2))
-                        screen.blit(txt_surf, txt_rect)
+                    pygame.draw.rect(screen, t_color, fill_rect)
                 
-                # 3. Dead Junctions (Dark Gray)
+                # 3. Dead Junctions
                 elif is_dead_junction:
-                    pygame.draw.rect(screen, COLOR_DEAD, rect)
+                    pygame.draw.rect(screen, COLOR_DEAD, fill_rect)
                 
-                # 4. Orange Junctions (Persistent Active)
+                # 4. Orange Junctions
                 elif maze.isJunction(pos) and (is_visited or on_stack or (val & (InternalBit.VISITED_TB.value | InternalBit.VISITED_BT.value))):
-                    pygame.draw.rect(screen, COLOR_JUNCTION, rect)
+                    pygame.draw.rect(screen, COLOR_JUNCTION, fill_rect)
                 
                 # 5. MT_M1 Remaining Rendering (Walker, BFS)
                 elif app_state['algorithm'] == 'MT_M1':
-                    # Pruned cells already handled above
                     if (val & InternalBit.VISITED_TB.value):
-                          # Walker TB
-                          pygame.draw.rect(screen, (50, 205, 50), rect) # Lime Green
-                    elif (val & InternalBit.VISITED_BT.value): # Actually re-using VISITED_BT bit for BFS BT
-                          # BFS BT
-                          pygame.draw.rect(screen, (255, 215, 0), rect) # Gold
+                          pygame.draw.rect(screen, (50, 205, 50), fill_rect) # Lime Green
+                    elif (val & InternalBit.VISITED_BT.value): 
+                          pygame.draw.rect(screen, (255, 215, 0), fill_rect) # Gold
                     elif (val & InternalBit.VISITED_BIT.value):
-                          pygame.draw.rect(screen, COLOR_VISITED, rect)
+                          pygame.draw.rect(screen, COLOR_VISITED, fill_rect)
 
-                # 6. MT_M2 Rendering (Thread Colors)
+                # 6. MT_M2 Rendering
                 elif app_state['algorithm'] == 'MT_M2':
                     tid = maze.getThreadOwner(pos)
-                    
-                    # A. Draw Background Colors (Rect Only)
                     if (val & InternalBit.VISITED_TB.value) or (val & InternalBit.VISITED_BT.value):
                         t_color = THREAD_COLORS.get(tid, (150, 150, 150))
-                        pygame.draw.rect(screen, t_color, rect)
+                        pygame.draw.rect(screen, t_color, fill_rect)
                     elif (val & InternalBit.VISITED_BIT.value):
-                        pygame.draw.rect(screen, COLOR_VISITED, rect)
+                        pygame.draw.rect(screen, COLOR_VISITED, fill_rect)
                             
                 # 7. DFS Rendering
                 elif app_state['algorithm'] == 'DFS':
                     if on_stack:
-                        pygame.draw.rect(screen, COLOR_DFS_PATH, rect)
+                        pygame.draw.rect(screen, COLOR_DFS_PATH, fill_rect)
                     elif is_visited:
-                        pygame.draw.rect(screen, COLOR_VISITED, rect)
+                        pygame.draw.rect(screen, COLOR_VISITED, fill_rect)
 
                 # 8. BFS Rendering
                 elif is_visited:
                     color = COLOR_BFS_VISITED if app_state['algorithm'] == 'BFS' else COLOR_VISITED
-                    pygame.draw.rect(screen, color, rect)
+                    pygame.draw.rect(screen, color, fill_rect)
                 
-                # --- MT_M2 Thread Number Overlay (Correctly placed AFTER background Rects) ---
-                if app_state['algorithm'] == 'MT_M2':
-                    tid = maze.getThreadOwner(pos)
-                    if tid != -1:
-                        # Determine text color based on background
-                        txt_color = (0, 0, 0)
+                # --- LAYER 2: OVERLAYS (Text/Numbers) ---
+                # We do this AFTER all background rects to ensure visibility.
+                # ONLY if show_text is True (maze < 100)
+
+                if show_text:
+                    # A. MT_M1 Thread Numbers (Pruned, 4, 5)
+                    if app_state['algorithm'] == 'MT_M1':
+                        tid_to_draw = -1
                         
-                        # 1. Path (Green)
-                        if is_path:
-                            txt_color = (255, 255, 255)
-                        # 2. Dead Junction (Dark Gray)
-                        elif is_dead_junction:
-                            txt_color = (255, 255, 255)
-                        # 3. Active Junction (Orange)
-                        elif maze.isJunction(pos) and (is_visited or on_stack or (val & (InternalBit.VISITED_TB.value | InternalBit.VISITED_BT.value))):
-                            # Orange background (255, 185, 0) -> Black text
-                            txt_color = (0, 0, 0) 
-                        # 4. Standard Visited (Thread Color)
-                        else:
-                            # Use White for Darker threads (2, 5)
-                            if tid in [2, 5]: 
-                                txt_color = (255, 255, 255)
+                        if is_pruned:
+                            tid_to_draw = maze.getThreadOwner(pos)
+                        elif (val & InternalBit.VISITED_TB.value):
+                            tid_to_draw = 4
+                        elif (val & InternalBit.VISITED_BT.value):
+                            tid_to_draw = 5
+                        
+                        if tid_to_draw != -1:
+                            # Determine contrast color
+                            txt_color = (0, 0, 0) # Default Black
+                            
+                            if is_path: txt_color = (255, 255, 255) # Green Path -> White
+                            elif is_dead_junction: txt_color = (255, 255, 255) # Dark Dead -> White
+                            elif maze.isJunction(pos) and (is_visited or on_stack or (val & (InternalBit.VISITED_TB.value | InternalBit.VISITED_BT.value))):
+                                txt_color = (0, 0, 0) # Orange Junc -> Black
+                            else:
+                                 # Default visited colors
+                                 if tid_to_draw == 4: txt_color = (0, 0, 0) # Lime -> Black
+                                 if tid_to_draw == 5: txt_color = (0, 0, 0) # Gold -> Black
 
-                        txt_surf = font_cell.render(str(tid), True, txt_color)
-                        txt_rect = txt_surf.get_rect(center=(x + CELL_W//2, y + CELL_H//2))
-                        screen.blit(txt_surf, txt_rect)
+                            txt_surf = font_cell.render(str(tid_to_draw), True, txt_color)
+                            txt_rect = txt_surf.get_rect(center=(x + w//2, y + h//2))
+                            screen.blit(txt_surf, txt_rect)
+
+                    # B. MT_M2 Thread Number Overlay
+                    elif app_state['algorithm'] == 'MT_M2':
+                        tid = maze.getThreadOwner(pos)
+                        if tid != -1:
+                            txt_color = (0, 0, 0)
+                            if is_path: txt_color = (255, 255, 255)
+                            elif is_dead_junction: txt_color = (255, 255, 255)
+                            elif maze.isJunction(pos) and (is_visited or on_stack or (val & (InternalBit.VISITED_TB.value | InternalBit.VISITED_BT.value))):
+                                txt_color = (0, 0, 0) 
+                            else:
+                                if tid in [2, 5]: txt_color = (255, 255, 255)
+
+                            txt_surf = font_cell.render(str(tid), True, txt_color)
+                            txt_rect = txt_surf.get_rect(center=(x + w//2, y + h//2))
+                            screen.blit(txt_surf, txt_rect)
+                    
+                    # C. Order Numbers (ONLY if NOT MT)
+                    elif app_state['algorithm'] not in ['MT_M2', 'MT_M1']:
+                        order = maze.getVisitOrder(pos)
+                        if order != -1:
+                            is_dark_bg = is_path or (on_stack and app_state['algorithm'] == 'DFS') or is_dead_junction
+                            txt_color = COLOR_TEXT_WHITE if is_dark_bg else COLOR_TEXT_NORMAL
+                            txt_surf = font_cell.render(str(order), True, txt_color)
+                            txt_rect = txt_surf.get_rect(center=(x + w//2, y + h//2))
+                            screen.blit(txt_surf, txt_rect)
                 
-                # Order Numbers (ONLY if NOT MT)
-                if app_state['algorithm'] not in ['MT_M2', 'MT_M1']:
-                    order = maze.getVisitOrder(pos)
-                    if order != -1:
-                        is_dark_bg = is_path or (on_stack and app_state['algorithm'] == 'DFS') or is_dead_junction
-                        txt_color = COLOR_TEXT_WHITE if is_dark_bg else COLOR_TEXT_NORMAL
-                        txt_surf = font_cell.render(str(order), True, txt_color)
-                        txt_rect = txt_surf.get_rect(center=(x + CELL_W//2, y + CELL_H//2))
-                        screen.blit(txt_surf, txt_rect)
-
-        # Walls
-        for r in range(maze.height):
-            for c in range(maze.width):
-                pos = Position(r, c)
-                val = maze.getCell(pos)
-                x, y = c * CELL_W, r * CELL_H
+                # Walls (using same dynamic rect coordinates, not shrinked)
+                # Using dynamic 'wt'
                 if (val & InternalBit.EAST_BIT.value):
-                    pygame.draw.line(screen, COLOR_WALL, (x+CELL_W, y), (x+CELL_W, y+CELL_H), WALL_THICKNESS)
+                    pygame.draw.line(screen, COLOR_WALL, (x+w, y), (x+w, y+h), wt)
                 if (val & InternalBit.SOUTH_BIT.value):
-                    pygame.draw.line(screen, COLOR_WALL, (x, y+CELL_H), (x+CELL_W, y+CELL_H), WALL_THICKNESS)
+                    pygame.draw.line(screen, COLOR_WALL, (x, y+h), (x+w, y+h), wt)
 
-        # === 9. Start & End Arrows ===
+        # Arrows
         start_pos = maze.getStart()
         end_pos = maze.getEnd()
         
-        # Helper to draw simple arrow
         def draw_map_arrow(pos, color):
-            x, y = pos.col * CELL_W, pos.row * CELL_H
-            # Points for a downward triangle arrow
+            # Recalculate dynamic pos for arrows to match grid
+            x = int(pos.col * step_x)
+            y = int(pos.row * step_y)
+            w = int((pos.col + 1) * step_x) - x
+            h = int((pos.row + 1) * step_y) - y
+            
+            # Use dynamic offset to ensure arrow fits in smaller cells
+            offset = min(3, w//4) # Dynamic offset
+            
             points = [
-                (x + 3, y + 3),
-                (x + CELL_W - 3, y + 3),
-                (x + CELL_W // 2, y + CELL_H - 3)
+                (x + offset, y + offset),
+                (x + w - offset, y + offset),
+                (x + w // 2, y + h - offset)
             ]
             pygame.draw.polygon(screen, color, points)
-            pygame.draw.polygon(screen, (0, 0, 0), points, 1) # Outline
+            pygame.draw.polygon(screen, (0, 0, 0), points, 1)
 
-        draw_map_arrow(start_pos, (0, 255, 0)) # Green Arrow for Start
-        draw_map_arrow(end_pos, (255, 0, 0))   # Red Arrow for End
+        draw_map_arrow(start_pos, (0, 255, 0)) 
+        draw_map_arrow(end_pos, (255, 0, 0))  
 
         # Control Panel
-        pygame.draw.rect(screen, (230, 230, 230), (maze_w_px, 0, CONTROL_PANEL_WIDTH, screen_h))
-        pygame.draw.line(screen, (100, 100, 100), (maze_w_px, 0), (maze_w_px, screen_h), 2)
+        pygame.draw.rect(screen, (230, 230, 230), (VIEWPORT_W, 0, CONTROL_PANEL_WIDTH, screen_h))
+        pygame.draw.line(screen, (100, 100, 100), (VIEWPORT_W, 0), (VIEWPORT_W, screen_h), 2)
         
         txt_algo = font.render(f"Mode: {app_state['algorithm']}", True, (0, 0, 0))
-        screen.blit(txt_algo, (panel_start_x, 20))
+        screen.blit(txt_algo, (panel_start_x, 100))
 
         txt_speed = font.render("Speed:", True, (0, 0, 0))
-        screen.blit(txt_speed, (panel_start_x, 60))
+        screen.blit(txt_speed, (panel_start_x, 140))
+        
+        # Draw UI Elements
+        btn_sz_20.draw(screen)
+        btn_sz_50.draw(screen)
+        btn_sz_100.draw(screen)
+        btn_sz_200.draw(screen)
         
         slider.draw(screen)
         btn_bfs.draw(screen)
@@ -1448,21 +1578,16 @@ def main():
         btn_mt1.draw(screen)
         btn_restart.draw(screen)
         
-        # === LEGEND RENDERER (Updated) ===
-        legend_y = 300
-        
-        # 1. Determine items based on algorithm
+        # Legend (Adjusted Position)
+        legend_y = 350
         legend_items = []
         
         if app_state['algorithm'] == 'MT_M2':
-            # MT Mode: Threads First
             title = font.render("Thread Legend:", True, (0, 0, 0))
             screen.blit(title, (panel_start_x, legend_y))
             legend_y += 30
             for tid, color in THREAD_COLORS.items():
                 legend_items.append((color, f"{'TB' if tid < 3 else 'BT'} Thread {tid}"))
-            
-            # Add separation
             legend_items.append(None) 
         
         elif app_state['algorithm'] == 'MT_M1':
@@ -1472,39 +1597,38 @@ def main():
             for tid, color in PRUNE_COLORS.items():
                 legend_items.append((color, f"Pruner Chunk {tid}"))
             legend_items.append(None)
-            legend_items.append(((50, 205, 50), "TB Walker"))
-            legend_items.append(((255, 215, 0), "BT BFS Search"))
+            legend_items.append(((50, 205, 50), "TB Walker (4)"))
+            legend_items.append(((255, 215, 0), "BT BFS Search (5)"))
             
         elif app_state['algorithm'] == 'DFS':
-            # DFS Mode: Stack First
             title = font.render("DFS Legend:", True, (0, 0, 0))
             screen.blit(title, (panel_start_x, legend_y))
             legend_y += 30
             legend_items.append((COLOR_DFS_PATH, "Search Path"))
             legend_items.append(None)
+        
+        elif app_state['algorithm'] == 'BFS':
+            title = font.render("BFS Legend:", True, (0, 0, 0))
+            screen.blit(title, (panel_start_x, legend_y))
+            legend_y += 30
+            legend_items.append((COLOR_BFS_VISITED, "BFS Search"))
+            legend_items.append(None)
 
-        # 2. Add Common Junction Items (Active & Dead)
-        if app_state['algorithm'] in ['MT_M2', 'DFS', 'MT_M1']:
-            legend_items.append((COLOR_JUNCTION, "Active Junc"))
-            legend_items.append((COLOR_DEAD, "Dead Junc"))
-            # Also show final path color
+        if app_state['algorithm'] in ['MT_M2', 'DFS', 'MT_M1', 'BFS']:
+            legend_items.append((COLOR_JUNCTION, "Junction"))
+            if app_state['algorithm'] not in ['MT_M1', 'BFS']:
+                 legend_items.append((COLOR_DEAD, "Dead Junc"))
             legend_items.append((COLOR_PATH, "Final Path"))
 
-        # 3. Render Items
         for item in legend_items:
             if item is None:
-                legend_y += 10 # Spacer
+                legend_y += 10
                 continue
-                
             color, text = item
-            # Color Box
             pygame.draw.rect(screen, color, (panel_start_x, legend_y, 20, 20), border_radius=3)
             pygame.draw.rect(screen, (0, 0, 0), (panel_start_x, legend_y, 20, 20), 1, border_radius=3)
-            
-            # Text
             txt_surf = font.render(text, True, (50, 50, 50))
             screen.blit(txt_surf, (panel_start_x + 30, legend_y))
-            
             legend_y += 25
 
         pygame.display.flip()
