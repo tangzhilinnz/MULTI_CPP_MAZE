@@ -18,7 +18,7 @@ CircularData::CircularData()
 
 bool CircularData::PushBack(Position pPos)
 {
-	std::lock_guard</*std::mutex*/SpinLock> lock(this->mtx);
+	std::lock_guard<std::mutex/*SpinLock*/> lock(this->mtx);
 
 	bool status = true;
 
@@ -50,7 +50,7 @@ bool CircularData::PushBack(Position pPos)
 
 bool CircularData::PopFront(Position& pPos)
 {
-	std::lock_guard</*std::mutex*/SpinLock> lock(this->mtx);
+	std::lock_guard<std::mutex/*SpinLock*/> lock(this->mtx);
 
 	bool status = true;
 

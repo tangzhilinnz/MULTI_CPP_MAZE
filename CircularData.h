@@ -90,8 +90,8 @@ private:
 	bool empty;
 	bool full;
 	char pad[6];
-	//std::mutex mtx;
-	SpinLock mtx;
+	std::mutex mtx;
+	//SpinLock mtx;
 };
 
 #endif
