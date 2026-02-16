@@ -4,6 +4,38 @@
 #include "Position.h"
 #include <mutex>
 
+#include <atomic>
+#include <thread>
+
+class SpinLock
+{
+	std::atomic_flag flag = ATOMIC_FLAG_INIT;
+
+public:
+	SpinLock() = default;
+	SpinLock(const SpinLock&) = delete;
+	SpinLock& operator=(const SpinLock&) = delete;
+
+	void lock() noexcept
+	{
+		while (flag.test_and_set(std::memory_order_acquire))
+		{
+			std::this_thread::yield(); // or pause
+		}
+	}
+
+	bool try_lock() noexcept
+	{
+		return !flag.test_and_set(std::memory_order_acquire);
+	}
+
+	void unlock() noexcept
+	{
+		flag.clear(std::memory_order_release);
+	}
+};
+
+
 class CircularData
 {
 private:
@@ -58,7 +90,8 @@ private:
 	bool empty;
 	bool full;
 	char pad[6];
-	std::mutex mtx;
+	//std::mutex mtx;
+	SpinLock mtx;
 };
 
 #endif
